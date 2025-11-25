@@ -1,0 +1,41 @@
+{
+  "name": "x402-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "start": "tsx index.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.71.0",
+    "@prisma/client": "7.0.0",
+    "@reown/appkit": "^1.8.14",
+    "@reown/appkit-adapter-wagmi": "^1.8.14",
+    "@tanstack/react-query": "^5.90.10",
+    "@types/cors": "2.8.19",
+    "@types/express": "5.0.5",
+    "@types/node": "24.10.1",
+    "cors": "2.8.5",
+    "dotenv": "17.2.3",
+    "express": "5.1.0",
+    "framer-motion": "^12.23.24",
+    "lucide-react": "^0.554.0",
+    "prisma": "7.0.0",
+    "recharts": "^3.5.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "viem": "^2.40.2",
+    "wagmi": "^3.0.1",
+    "x402-express": "0.7.3",
+    "x402-fetch": "^0.7.3"
+  }
+}

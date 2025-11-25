@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+@theme {
+  --color-bg-primary: #b8d1b3;
+  --color-bg-dark: #000000;
+  --color-text-primary: #ffffff;
+  --color-accent-glow: #7fff00;
+  --font-mono: 'Space Mono', monospace;
+}
+
+:root {
+  --bg-primary: #b8d1b3;
+  --bg-dark: #000000;
+  --text-primary: #ffffff;
+  --accent-glow: #7fff00;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  font-family: 'Space Mono', monospace;
+  overflow-x: hidden;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+@utility bracket-text {
+  &::before {
+    content: '[';
+    opacity: 0.7;
+  }
+  &::after {
+    content: ']';
+    opacity: 0.7;
+  }
+}
+
+@utility glow-text {
+  text-shadow: 0 0 20px rgba(127, 255, 0, 0.3);
+}
+
+@utility scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

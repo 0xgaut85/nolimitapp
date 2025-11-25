@@ -1,0 +1,86 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  address   String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  payments     Payment[]
+  agentUsages  AgentUsage[]
+  swapUsages   SwapUsage[]
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  amount      String   // Amount in USDC (stored as string to preserve precision)
+  currency    String   // "USDC"
+  chain       String   // "base" or "solana"
+  txHash      String?
+  service     String   // "agent" or "swap"
+  status      String   // "pending", "completed", "failed"
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([service])
+  @@index([createdAt])
+}
+
+model AgentUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String   @db.Text
+  response  String   @db.Text
+  fee       String   // 0.05 USDC
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model SwapUsage {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  chain       String   // "base" or "solana"
+  fromToken   String
+  toToken     String
+  fromAmount  String
+  toAmount    String
+  fee         String   // 0.10 USDC
+  txHash      String?
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([chain])
+  @@index([createdAt])
+}
+
+model DailyStat {
+  id              String   @id @default(cuid())
+  date            DateTime @unique
+  totalUsers      Int      @default(0)
+  newUsers        Int      @default(0)
+  totalRevenue    String   @default("0") // Total USDC collected
+  agentMessages   Int      @default(0)
+  swapCount       Int      @default(0)
+  swapVolumeBase  String   @default("0")
+  swapVolumeSol   String   @default("0")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([date])
+}
