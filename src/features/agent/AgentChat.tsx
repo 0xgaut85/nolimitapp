@@ -36,7 +36,9 @@ export function AgentChat() {
 
     try {
       // Using x402-fetch to handle payment flow
-      const { x402Fetch } = await import('x402-fetch');
+      const x402Module = await import('x402-fetch');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const x402Fetch = (x402Module as any).x402Fetch || (x402Module as any).default;
       
       const response = await x402Fetch(`${config.x402ServerUrl}/api/agent/chat`, {
         method: 'POST',
@@ -59,13 +61,13 @@ export function AgentChat() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Agent error:', error);
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `Error: ${error.message || 'Failed to get response'}`,
+        content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
         timestamp: new Date(),
       };
 

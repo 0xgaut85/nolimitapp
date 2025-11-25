@@ -20,6 +20,7 @@ export function SwapInterface() {
     amount: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [quote, setQuote] = useState<string | null>(null);
 
   const handleSwap = async () => {
@@ -37,7 +38,9 @@ export function SwapInterface() {
 
     try {
       // Using x402-fetch to handle payment flow
-      const { x402Fetch } = await import('x402-fetch');
+      const x402Module = await import('x402-fetch');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const x402Fetch = (x402Module as any).x402Fetch || (x402Module as any).default;
       
       const response = await x402Fetch(`${config.x402ServerUrl}/api/swap/transaction`, {
         method: 'POST',
@@ -53,9 +56,9 @@ export function SwapInterface() {
       const data = await response.json();
       
       alert(`Swap initiated successfully! ${JSON.stringify(data)}`);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Swap error:', error);
-      alert(`Swap failed: ${error.message}`);
+      alert(`Swap failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
