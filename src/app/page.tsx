@@ -1,44 +1,68 @@
+import Link from 'next/link';
+import { Card } from '@/components/ui/Card';
+
 export default function HomePage() {
   return (
-    <div className="max-w-4xl mx-auto text-center">
-      <h1 className="text-6xl font-mono text-white glow-text mb-6">
-        [NoLimit]
-      </h1>
-      <p className="text-xl text-white/80 font-mono mb-12">
-        Private Payment Infrastructure for DeFi
+    <div className="min-h-[80vh] flex flex-col items-center justify-center text-center max-w-5xl mx-auto">
+      {/* Hero Title */}
+      <div className="relative mb-12 group">
+        <div className="absolute -inset-1 bg-accent-glow/20 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-1000" />
+        <h1 className="text-6xl md:text-8xl font-mono text-white glow-text tracking-tighter mb-2 relative z-10">
+          NO<span className="text-accent-glow">LIMIT</span>
+        </h1>
+        <p className="text-sm md:text-base font-mono text-accent-glow/80 tracking-[0.2em] uppercase">
+          Private Payment Infrastructure // V1.0.0
+        </p>
+      </div>
+
+      {/* Value Prop */}
+      <p className="text-xl text-white/60 font-mono mb-16 max-w-2xl leading-relaxed">
+        Deploy payment-gated AI agents and execute private swaps on Base and Solana. 
+        <span className="text-white block mt-2">Zero friction. Maximum privacy.</span>
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Feature Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
         <FeatureCard
-          title="AI Agent"
-          description="Chat with NoLimit AI powered by x402 payments"
+          title="AI_AGENT"
+          description="Secure terminal for autonomous interactions powered by x402 payments."
           href="/agent"
+          delay={0}
         />
         <FeatureCard
-          title="Dashboard"
-          description="Real-time analytics and usage statistics"
+          title="LIVE_DASHBOARD"
+          description="Real-time analytics and protocol metrics visualization."
           href="/dashboard"
+          delay={0.1}
         />
         <FeatureCard
-          title="Swap"
-          description="Privacy-focused token swaps on Base and Solana"
+          title="ATOMIC_SWAP"
+          description="High-frequency trading router with privacy preservation."
           href="/swap"
+          delay={0.2}
         />
       </div>
     </div>
   );
 }
 
-function FeatureCard({ title, description, href }: { title: string; description: string; href: string }) {
+function FeatureCard({ title, description, href, delay }: { title: string; description: string; href: string; delay: number }) {
   return (
-    <a
-      href={href}
-      className="block p-6 bg-black/40 backdrop-blur-sm rounded-lg border border-white/10 hover:border-accent-glow/30 transition-all group"
-    >
-      <h3 className="text-xl font-mono text-white glow-text mb-3 group-hover:text-accent-glow transition-colors">
-        [{title}]
-      </h3>
-      <p className="text-sm text-white/60 font-mono">{description}</p>
-    </a>
+    <Link href={href} className="block group h-full" style={{ animationDelay: `${delay}s` }}>
+      <Card glow className="h-full p-8 flex flex-col items-start text-left hover:-translate-y-1 transition-transform duration-300">
+        <div className="mb-6 p-3 bg-accent-glow/10 rounded-lg border border-accent-glow/20 group-hover:border-accent-glow/50 transition-colors">
+          <div className="w-6 h-6 bg-accent-glow/80" style={{ clipPath: 'polygon(0 0, 100% 0, 100% 70%, 70% 100%, 0 100%)' }} />
+        </div>
+        <h3 className="text-xl font-mono text-white group-hover:text-accent-glow transition-colors mb-3 tracking-wider">
+          [{title}]
+        </h3>
+        <p className="text-sm text-white/50 font-mono leading-relaxed">
+          {description}
+        </p>
+        <div className="mt-auto pt-6 flex items-center text-xs font-mono text-accent-glow/60 group-hover:text-accent-glow transition-colors">
+          INITIALIZE_MODULE <span className="ml-2 text-lg">→</span>
+        </div>
+      </Card>
+    </Link>
   );
 }

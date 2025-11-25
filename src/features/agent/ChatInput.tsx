@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 
 type ChatInputProps = {
   onSend: (message: string) => void;
@@ -20,25 +22,25 @@ export function ChatInput({ onSend, isLoading, disabled }: ChatInputProps) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t border-white/10">
-      <div className="flex gap-2">
-        <input
-          type="text"
+    <form onSubmit={handleSubmit} className="flex gap-4 items-end">
+      <div className="flex-1">
+        <Input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder={disabled ? 'Connect wallet to send messages' : 'Type your message...'}
+          placeholder={disabled ? 'CONNECT_WALLET_TO_INITIALIZE' : 'ENTER_COMMAND...'}
           disabled={disabled || isLoading}
-          className="flex-1 px-4 py-3 bg-black/20 border border-white/10 rounded-lg text-white placeholder-white/40 font-mono focus:outline-none focus:border-accent-glow/50 disabled:opacity-50"
+          className="bg-black/60 border-white/20 focus:border-accent-glow/60 h-12"
         />
-        <button
-          type="submit"
-          disabled={disabled || isLoading || !message.trim()}
-          className="px-6 py-3 bg-accent-glow/20 hover:bg-accent-glow/30 rounded-lg border border-accent-glow/30 text-accent-glow font-mono transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isLoading ? 'Sending...' : 'Send'}
-        </button>
       </div>
+      <Button
+        type="submit"
+        variant="primary"
+        glow
+        disabled={disabled || isLoading || !message.trim()}
+        className="h-12 px-8"
+      >
+        {isLoading ? 'PROCESSING...' : 'TRANSMIT'}
+      </Button>
     </form>
   );
 }
-

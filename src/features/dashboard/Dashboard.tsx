@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { config } from '@/config';
 import { StatCard } from '@/components/ui/StatCard';
+import { Card } from '@/components/ui/Card';
 import { RevenueChart } from './components/RevenueChart';
 import { UsageChart } from './components/UsageChart';
 
@@ -32,7 +33,7 @@ export function Dashboard() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // Refresh every 10s
+    const interval = setInterval(fetchStats, 10000);
 
     return () => clearInterval(interval);
   }, []);
@@ -40,7 +41,10 @@ export function Dashboard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[600px]">
-        <p className="text-white/60 font-mono">Loading dashboard...</p>
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-2 border-accent-glow border-t-transparent rounded-full animate-spin" />
+          <p className="text-accent-glow font-mono animate-pulse">[LOADING_SYSTEM_METRICS]</p>
+        </div>
       </div>
     );
   }
@@ -48,12 +52,14 @@ export function Dashboard() {
   if (!stats) {
     return (
       <div className="flex items-center justify-center h-[600px]">
-        <p className="text-white/60 font-mono">Failed to load stats</p>
+        <div className="p-6 border border-red-500/50 bg-red-500/10 rounded text-red-400 font-mono">
+          [ERROR]: FAILED_TO_LOAD_STATS
+        </div>
       </div>
     );
   }
 
-  // Mock chart data (will be replaced with real data from DB)
+  // Mock chart data with improved structure
   const revenueData = [
     { date: '11/20', revenue: 15.5 },
     { date: '11/21', revenue: 22.3 },
@@ -64,29 +70,48 @@ export function Dashboard() {
   ];
 
   const usageData = [
-    { service: 'Agent', count: stats.agentMessages },
-    { service: 'Swap', count: stats.swapCount },
+    { service: 'AGENT', count: stats.agentMessages },
+    { service: 'SWAP', count: stats.swapCount },
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Users" value={stats.totalUsers.toString()} />
-        <StatCard title="Total Revenue" value={`$${stats.totalRevenue}`} />
-        <StatCard title="Agent Messages" value={stats.agentMessages.toString()} />
-        <StatCard title="Swaps" value={stats.swapCount.toString()} />
+    <div className="space-y-8">
+      {/* Header Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard title="TOTAL_USERS" value={stats.totalUsers.toString()} />
+        <StatCard title="TOTAL_REVENUE" value={`$${stats.totalRevenue}`} />
+        <StatCard title="AGENT_MESSAGES" value={stats.agentMessages.toString()} />
+        <StatCard title="TOTAL_SWAPS" value={stats.swapCount.toString()} />
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RevenueChart data={revenueData} />
-        <UsageChart data={usageData} />
+      {/* Charts Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card glow className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-mono text-white flex items-center gap-2">
+              <span className="text-accent-glow">[</span>REVENUE_TREND<span className="text-accent-glow">]</span>
+            </h3>
+            <span className="text-xs font-mono text-accent-glow/50">LIVE_DATA</span>
+          </div>
+          <RevenueChart data={revenueData} />
+        </Card>
+
+        <Card glow className="p-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-mono text-white flex items-center gap-2">
+              <span className="text-accent-glow">[</span>SERVICE_USAGE<span className="text-accent-glow">]</span>
+            </h3>
+            <span className="text-xs font-mono text-accent-glow/50">PROTOCOL_ACTIVITY</span>
+          </div>
+          <UsageChart data={usageData} />
+        </Card>
       </div>
 
-      <p className="text-xs text-white/40 font-mono text-center">
-        Last updated: {new Date(stats.lastUpdated).toLocaleString()}
-      </p>
+      <div className="flex justify-end">
+        <p className="text-[10px] text-white/30 font-mono uppercase">
+          LAST_SYNC: {new Date(stats.lastUpdated).toLocaleString()} {'//'} BLOCK_TIME: 2s
+        </p>
+      </div>
     </div>
   );
 }
