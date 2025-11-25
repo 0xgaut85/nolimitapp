@@ -1,25 +1,20 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-
-@theme {
-  --color-bg-primary: #000000;
-  --color-bg-secondary: #0a0a0a;
-  --color-text-primary: #ffffff;
-  --color-accent-glow: #7fff00;
-  --font-mono: 'Space Mono', monospace;
-  
-  --color-glass: rgba(255, 255, 255, 0.03);
-  --color-glass-border: rgba(255, 255, 255, 0.1);
-  --color-neon-green: #7fff00;
-  --color-neon-dim: rgba(127, 255, 0, 0.1);
-}
 
 :root {
   --bg-primary: #000000;
   --bg-secondary: #0a0a0a;
   --text-primary: #ffffff;
   --accent-glow: #7fff00;
+  --font-mono: 'Space Mono', monospace;
+  
+  --color-glass: rgba(255, 255, 255, 0.03);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+  --color-neon-green: #7fff00;
+  --color-neon-dim: rgba(127, 255, 0, 0.1);
 }
 
 * {
@@ -31,7 +26,7 @@
 body {
   color: var(--text-primary);
   background: var(--bg-primary);
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-mono);
   overflow-x: hidden;
   font-weight: 400;
   letter-spacing: -0.01em;
@@ -57,60 +52,60 @@ body {
   background: #7fff00;
 }
 
-@utility text-balance {
-  text-wrap: balance;
-}
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
 
-@utility bracket-text {
-  &::before {
+  .bracket-text::before {
     content: '[';
     color: var(--accent-glow);
     opacity: 0.7;
     margin-right: 4px;
   }
-  &::after {
+  .bracket-text::after {
     content: ']';
     color: var(--accent-glow);
     opacity: 0.7;
     margin-left: 4px;
   }
-}
 
-@utility glow-text {
-  text-shadow: 0 0 10px rgba(127, 255, 0, 0.5);
-}
+  .glow-text {
+    text-shadow: 0 0 10px rgba(127, 255, 0, 0.5);
+  }
 
-@utility glow-box {
-  box-shadow: 0 0 20px rgba(127, 255, 0, 0.1);
-  border: 1px solid rgba(127, 255, 0, 0.2);
-}
+  .glow-box {
+    box-shadow: 0 0 20px rgba(127, 255, 0, 0.1);
+    border: 1px solid rgba(127, 255, 0, 0.2);
+  }
 
-@utility scanline-bg {
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0),
-    rgba(255, 255, 255, 0) 50%,
-    rgba(0, 0, 0, 0.2) 50%,
-    rgba(0, 0, 0, 0.2)
-  );
-  background-size: 100% 4px;
-}
+  .scanline-bg {
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0),
+      rgba(255, 255, 255, 0) 50%,
+      rgba(0, 0, 0, 0.2) 50%,
+      rgba(0, 0, 0, 0.2)
+    );
+    background-size: 100% 4px;
+  }
 
-@utility glass-panel {
-  background: rgba(10, 10, 10, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
+  .glass-panel {
+    background: rgba(10, 10, 10, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
 
-@utility scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-  &::-webkit-scrollbar {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
 }
 
-/* Matrix rain animation keyframes can be added here if needed later */
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
@@ -119,4 +114,3 @@ body {
 .animate-pulse-glow {
   animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
-
