@@ -133,10 +133,10 @@ export function SwapForm() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <span className="text-white/70 font-mono text-xs uppercase tracking-wider">Gas</span>
               <div className="flex items-center gap-1.5">
-                {['slow', 'fast', 'instant'].map((speed) => (
+                {(['slow', 'fast', 'instant'] as const).map((speed) => (
                   <button
                     key={speed}
-                    onClick={() => setGasSpeed(speed as any)}
+                    onClick={() => setGasSpeed(speed)}
                     className={`px-2.5 py-1 font-mono text-xs rounded-lg transition-colors capitalize ${
                       gasSpeed === speed ? 'bg-[#b8d1b3] text-black' : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
                     }`}
