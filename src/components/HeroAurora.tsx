@@ -7,7 +7,7 @@ import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import type { ShaderMaterial } from "three";
 
 /**
- * Aurora Flow Background - Exact copy from main site
+ * Aurora Flow Background - Exact copy from main site (HeroInfinity.tsx)
  * Premium WebGL backdrop with flowing aurora effect
  */
 
@@ -184,7 +184,7 @@ function Scene(){
 
 export default function HeroAurora(){
   return (
-    <div className="w-full h-full bg-white">
+    <div className="relative w-full h-[60vh] md:h-[75vh] lg:h-[85vh] overflow-hidden bg-white">
       <Canvas dpr={[1,2]} camera={{ position:[0,0,6], fov: 42 }}>
         <Scene />
       </Canvas>
