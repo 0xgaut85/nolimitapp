@@ -3,9 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { config } from '@/config';
-import { MessageBubble } from './MessageBubble';
-import { ChatInput } from './ChatInput';
-import { Card } from '@/components/ui/Card';
+import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 
 type Message = {
   id: string;
@@ -17,8 +16,10 @@ type Message = {
 export function AgentChat() {
   const { address, isConnected } = useAccount();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -28,7 +29,17 @@ export function AgentChat() {
     scrollToBottom();
   }, [messages]);
 
-  const handleSendMessage = async (message: string) => {
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [input]);
+
+  const handleSendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+    
     if (!isConnected || !address) {
       alert('Please connect your wallet first');
       return;
@@ -37,17 +48,16 @@ export function AgentChat() {
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: message,
+      content: input.trim(),
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    setInput('');
     setIsLoading(true);
 
     try {
-      // Using x402-fetch to handle payment flow
       const x402Module = await import('x402-fetch');
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const x402Fetch = (x402Module as any).x402Fetch || (x402Module as any).default;
       
       const response = await x402Fetch(`${config.x402ServerUrl}/api/agent/chat`, {
@@ -56,7 +66,7 @@ export function AgentChat() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message,
+          message: input.trim(),
           userAddress: address,
         }),
       });
@@ -87,45 +97,156 @@ export function AgentChat() {
     }
   };
 
-  return (
-    <Card className="flex flex-col h-[700px] overflow-hidden border-accent-glow/20" glow>
-      <div className="p-6 border-b border-white/10 bg-black/40 backdrop-blur-xl">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-mono text-white glow-text flex items-center gap-3">
-              <span className="w-3 h-3 bg-accent-glow animate-pulse rounded-full shadow-[0_0_10px_#7fff00]" />
-              [noLimit_LLM_TERMINAL]
-            </h2>
-            <p className="text-sm text-white/40 mt-1 font-mono pl-6">
-              SECURE_CONNECTION_ESTABLISHED // FEE: {config.fees.agent} USDC
-            </p>
-          </div>
-          <div className="px-3 py-1 border border-accent-glow/30 rounded text-xs font-mono text-accent-glow bg-accent-glow/5">
-            STATUS: ONLINE
-          </div>
-        </div>
-      </div>
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide bg-black/20 relative">
-        {/* Scanline overlay */}
-        <div className="absolute inset-0 pointer-events-none scanline-bg opacity-20" />
-        
+  return (
+    <div className="flex flex-col h-[calc(100vh-200px)] max-w-4xl mx-auto">
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-white/20 font-mono space-y-4">
-            <div className="w-16 h-16 border border-current rounded-full flex items-center justify-center animate-pulse">
-              <div className="w-12 h-12 border border-current rounded-full" />
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <div className="mb-8">
+              <Image 
+                src="/logo3.svg" 
+                alt="noLimit" 
+                width={120} 
+                height={120}
+                className="opacity-50"
+              />
             </div>
-            <p className="text-sm tracking-widest">[AWAITING_INPUT]</p>
+            <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">
+              noLimit LLM
+            </h2>
+            <p className="text-white/60 max-w-md mb-8">
+              Uncensored AI assistant powered by x402 payments. 
+              Each message costs {config.fees.agent} USDC.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
+              {[
+                'Explain quantum computing',
+                'Write a Python script for...',
+                'Analyze this code...',
+                'Help me understand...'
+              ].map((suggestion, i) => (
+                <button
+                  key={i}
+                  onClick={() => setInput(suggestion)}
+                  className="p-4 text-left bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-white/20 transition-all text-white/80 text-sm"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
-          messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+          <div className="py-4">
+            <AnimatePresence>
+              {messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className={`py-6 px-4 ${msg.role === 'assistant' ? 'bg-white/5' : ''}`}
+                >
+                  <div className="max-w-3xl mx-auto flex gap-4">
+                    {/* Avatar */}
+                    <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                      msg.role === 'assistant' 
+                        ? 'bg-[#7fff00] text-black' 
+                        : 'bg-white/20 text-white'
+                    }`}>
+                      {msg.role === 'assistant' ? (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      )}
+                    </div>
+                    
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-semibold text-white">
+                          {msg.role === 'assistant' ? 'noLimit LLM' : 'You'}
+                        </span>
+                        <span className="text-xs text-white/40">
+                          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="text-white/90 whitespace-pre-wrap leading-relaxed">
+                        {msg.content}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="py-6 px-4 bg-white/5"
+              >
+                <div className="max-w-3xl mx-auto flex gap-4">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-[#7fff00] text-black flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-white/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+            
+            <div ref={messagesEndRef} />
+          </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-black/40 border-t border-white/10 backdrop-blur-md relative z-10">
-        <ChatInput onSend={handleSendMessage} isLoading={isLoading} disabled={!isConnected} />
+      {/* Input Area - ChatGPT style */}
+      <div className="border-t border-white/10 p-4">
+        <div className="max-w-3xl mx-auto">
+          <div className="relative bg-white/5 border border-white/20 rounded-2xl overflow-hidden focus-within:border-[#7fff00]/50 transition-colors">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={isConnected ? "Message noLimit LLM..." : "Connect wallet to chat..."}
+              disabled={!isConnected || isLoading}
+              rows={1}
+              className="w-full bg-transparent text-white placeholder-white/40 px-4 py-4 pr-14 resize-none focus:outline-none disabled:opacity-50 max-h-[200px]"
+            />
+            <button
+              onClick={handleSendMessage}
+              disabled={!input.trim() || !isConnected || isLoading}
+              className="absolute right-2 bottom-2 p-2 bg-[#7fff00] text-black rounded-lg hover:bg-[#6ee600] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-center text-xs text-white/40 mt-3">
+            {config.fees.agent} USDC per message • Powered by x402 Protocol
+          </p>
+        </div>
       </div>
-    </Card>
+    </div>
   );
 }

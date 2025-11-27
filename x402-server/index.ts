@@ -5,6 +5,7 @@
 
 import { config } from 'dotenv';
 import express from 'express';
+import cors from 'cors';
 import { paymentMiddleware, Resource } from 'x402-express';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaClient } from '@prisma/client';
@@ -33,54 +34,31 @@ const app = express();
 // Trust proxy for Railway
 app.set('trust proxy', true);
 
-// CORS configuration
-const allowedOrigins = [
-  process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000',
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'https://app.nolimit.foundation',
-  'https://nolimit.foundation',
-].filter(Boolean);
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  
-  const isAllowed = !origin || 
-    allowedOrigins.includes(origin) || 
-    origin.includes('railway.app') ||
-    origin.includes('nolimit.foundation') ||
-    origin.includes('vercel.app');
-  
-  if (isAllowed && origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (isAllowed) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  const requestedHeaders = req.headers['access-control-request-headers'] as string | undefined;
-  if (requestedHeaders) {
-    res.setHeader('Access-Control-Allow-Headers', requestedHeaders);
-  } else {
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Content-Type, X-Payment, X-Payment-Response, X-Payment-Required, X-Payment-Quote, WWW-Authenticate, Authorization'
-    );
-  }
-  
-  res.setHeader(
-    'Access-Control-Expose-Headers',
-    'X-Payment, X-Payment-Response, X-Payment-Required, X-Payment-Quote, WWW-Authenticate'
-  );
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400');
-  
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  next();
-});
+// CORS configuration - Allow all origins for API access
+app.use(cors({
+  origin: true, // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Payment',
+    'X-Payment-Response',
+    'X-Payment-Required',
+    'X-Payment-Quote',
+    'WWW-Authenticate'
+  ],
+  exposedHeaders: [
+    'X-Payment',
+    'X-Payment-Response',
+    'X-Payment-Required',
+    'X-Payment-Quote',
+    'WWW-Authenticate'
+  ],
+  credentials: true,
+  maxAge: 86400,
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
 
 app.use(express.json());
 
