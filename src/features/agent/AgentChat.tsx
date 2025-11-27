@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useWalletClient } from 'wagmi';
 import { config } from '@/config';
+import { x402Fetch } from '@/lib/x402';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 
@@ -15,10 +16,12 @@ type Message = {
 
 export function AgentChat() {
   const { address, isConnected } = useAccount();
+  const { data: walletClient } = useWalletClient();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paymentPending, setPaymentPending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -59,6 +62,7 @@ export function AgentChat() {
     setInput('');
     setIsLoading(true);
     setError(null);
+    setPaymentPending(false);
 
     try {
       // Build conversation history for context
@@ -67,17 +71,27 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const response = await fetch(`${config.x402ServerUrl}/api/agent/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      setPaymentPending(true);
+
+      // Use x402Fetch which handles 402 payment flow
+      const response = await x402Fetch(
+        `${config.x402ServerUrl}/api/agent/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: messageContent,
+            userAddress: address,
+            conversationHistory,
+          }),
         },
-        body: JSON.stringify({
-          message: messageContent,
-          userAddress: address,
-          conversationHistory,
-        }),
-      });
+        walletClient || null,
+        address
+      );
+
+      setPaymentPending(false);
 
       const data = await response.json();
 
@@ -95,12 +109,17 @@ export function AgentChat() {
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
       console.error('Agent error:', err);
+      setPaymentPending(false);
       
       const errorContent = err instanceof Error ? err.message : 'Failed to get response';
       
-      // Check if it's a payment required error (402)
-      if (errorContent.includes('402') || errorContent.includes('payment')) {
-        setError('Payment required. x402 payment integration coming soon.');
+      // Show specific error messages
+      if (errorContent.includes('User rejected') || errorContent.includes('denied')) {
+        setError('Payment signature was rejected. Please approve the payment to continue.');
+      } else if (errorContent.includes('Wallet not connected')) {
+        setError('Please connect your wallet to make payments.');
+      } else if (errorContent.includes('402') || errorContent.includes('payment')) {
+        setError(`Payment required: ${config.fees.agent} USDC per message`);
       } else {
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -126,10 +145,26 @@ export function AgentChat() {
     <div className="flex flex-col h-[calc(100vh-200px)] max-w-4xl mx-auto">
       {/* Error Banner */}
       {error && (
-        <div className="mx-4 mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-mono flex items-center justify-between">
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-4 mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-mono flex items-center justify-between"
+        >
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300">✕</button>
-        </div>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 ml-4">✕</button>
+        </motion.div>
+      )}
+
+      {/* Payment Pending Banner */}
+      {paymentPending && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-4 mb-4 p-4 bg-[#7fff00]/10 border border-[#7fff00]/30 rounded-lg text-[#7fff00] text-sm font-mono flex items-center gap-3"
+        >
+          <div className="w-4 h-4 border-2 border-[#7fff00] border-t-transparent rounded-full animate-spin" />
+          <span>Please sign the payment request in your wallet ({config.fees.agent} USDC)</span>
+        </motion.div>
       )}
 
       {/* Messages Area */}
@@ -148,10 +183,13 @@ export function AgentChat() {
             <h2 className="text-2xl md:text-3xl font-bold text-white mb-4">
               noLimit LLM
             </h2>
-            <p className="text-white/60 max-w-md mb-8">
-              Uncensored AI assistant powered by Venice AI. 
-              Each message costs {config.fees.agent} USDC.
+            <p className="text-white/60 max-w-md mb-4">
+              Uncensored AI assistant powered by Venice AI.
             </p>
+            <div className="flex items-center gap-2 mb-8 px-4 py-2 bg-[#7fff00]/10 border border-[#7fff00]/30 rounded-lg">
+              <span className="text-[#7fff00] font-mono text-sm">{config.fees.agent} USDC</span>
+              <span className="text-white/40 text-sm">per message via x402</span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
               {[
                 'Explain quantum computing simply',
@@ -218,7 +256,7 @@ export function AgentChat() {
             </AnimatePresence>
             
             {/* Loading indicator */}
-            {isLoading && (
+            {isLoading && !paymentPending && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -268,9 +306,15 @@ export function AgentChat() {
               </svg>
             </button>
           </div>
-          <p className="text-center text-xs text-white/40 mt-3">
-            {config.fees.agent} USDC per message • Powered by Venice AI
-          </p>
+          <div className="flex items-center justify-center gap-4 mt-3">
+            <p className="text-xs text-white/40">
+              {config.fees.agent} USDC per message
+            </p>
+            <span className="text-white/20">•</span>
+            <p className="text-xs text-white/40">
+              Powered by x402 Protocol & Venice AI
+            </p>
+          </div>
         </div>
       </div>
     </div>
