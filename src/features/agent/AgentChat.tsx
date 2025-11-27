@@ -18,6 +18,7 @@ export function AgentChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -41,37 +42,48 @@ export function AgentChat() {
     if (!input.trim() || isLoading) return;
     
     if (!isConnected || !address) {
-      alert('Please connect your wallet first');
+      setError('Please connect your wallet first');
       return;
     }
 
+    const messageContent = input.trim();
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input.trim(),
+      content: messageContent,
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setError(null);
 
     try {
-      const x402Module = await import('x402-fetch');
-      const x402Fetch = (x402Module as any).x402Fetch || (x402Module as any).default;
-      
-      const response = await x402Fetch(`${config.x402ServerUrl}/api/agent/chat`, {
+      // Build conversation history for context
+      const conversationHistory = messages.map(m => ({
+        role: m.role,
+        content: m.content
+      }));
+
+      const response = await fetch(`${config.x402ServerUrl}/api/agent/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: input.trim(),
+          message: messageContent,
           userAddress: address,
+          conversationHistory,
         }),
       });
 
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get response');
+      }
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -81,17 +93,23 @@ export function AgentChat() {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Agent error:', error);
+    } catch (err) {
+      console.error('Agent error:', err);
       
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, errorMessage]);
+      const errorContent = err instanceof Error ? err.message : 'Failed to get response';
+      
+      // Check if it's a payment required error (402)
+      if (errorContent.includes('402') || errorContent.includes('payment')) {
+        setError('Payment required. x402 payment integration coming soon.');
+      } else {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `Error: ${errorContent}`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -106,6 +124,14 @@ export function AgentChat() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-200px)] max-w-4xl mx-auto">
+      {/* Error Banner */}
+      {error && (
+        <div className="mx-4 mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm font-mono flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300">✕</button>
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
@@ -123,15 +149,15 @@ export function AgentChat() {
               noLimit LLM
             </h2>
             <p className="text-white/60 max-w-md mb-8">
-              Uncensored AI assistant powered by x402 payments. 
+              Uncensored AI assistant powered by Venice AI. 
               Each message costs {config.fees.agent} USDC.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
               {[
-                'Explain quantum computing',
-                'Write a Python script for...',
-                'Analyze this code...',
-                'Help me understand...'
+                'Explain quantum computing simply',
+                'Write a Python web scraper',
+                'How do smart contracts work?',
+                'Create a trading bot strategy'
               ].map((suggestion, i) => (
                 <button
                   key={i}
@@ -243,7 +269,7 @@ export function AgentChat() {
             </button>
           </div>
           <p className="text-center text-xs text-white/40 mt-3">
-            {config.fees.agent} USDC per message • Powered by x402 Protocol
+            {config.fees.agent} USDC per message • Powered by Venice AI
           </p>
         </div>
       </div>
