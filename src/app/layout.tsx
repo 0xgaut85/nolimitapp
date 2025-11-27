@@ -5,8 +5,11 @@ import { PasswordGate } from '@/components/PasswordGate';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'NoLimit - Private Payment Infrastructure',
-  description: 'AI Agent and Swap platform with x402 payments',
+  title: 'noLimit Foundation',
+  description: 'Enterprise-grade language models with complete freedom. No guardrails, no restrictions. Reliable, uncensored intelligence for developers and enterprises.',
+  icons: {
+    icon: '/illustration/logox.jpg',
+  },
 };
 
 export default function RootLayout({
