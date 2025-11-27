@@ -2,10 +2,10 @@
 # Optimizes build time by using Node 20 and caching
 
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "python3"]
 
 [phases.install]
-cmds = ["npm ci --legacy-peer-deps"]
+cmds = ["npm ci --legacy-peer-deps --ignore-scripts"]
 
 [phases.build]
 cmds = ["npm run build"]
@@ -17,4 +17,3 @@ cmd = "npm start"
 [caches]
 npm = "node_modules"
 next = ".next/cache"
-

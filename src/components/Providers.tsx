@@ -6,13 +6,8 @@ import { base, mainnet, arbitrum, optimism, polygon } from '@reown/appkit/networ
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana/react';
-import { solana, solanaDevnet } from '@reown/appkit/networks';
-import { 
-  PhantomWalletAdapter, 
-  SolflareWalletAdapter,
-  TrustWalletAdapter,
-  CoinbaseWalletAdapter,
-} from '@solana/wallet-adapter-wallets';
+import { solana } from '@reown/appkit/networks';
+import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { ReactNode } from 'react';
 
 // Create query client
@@ -21,12 +16,10 @@ const queryClient = new QueryClient();
 // Project ID from Reown Cloud
 const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID || '';
 
-// Solana wallet adapters
+// Solana wallet adapters - only use ones without native dependencies
 const solanaWallets = [
   new PhantomWalletAdapter(),
   new SolflareWalletAdapter(),
-  new TrustWalletAdapter(),
-  new CoinbaseWalletAdapter(),
 ];
 
 // Create Solana adapter
@@ -41,7 +34,7 @@ const wagmiAdapter = new WagmiAdapter({
 });
 
 // All supported networks
-const networks = [base, solana, mainnet, arbitrum, optimism, polygon, solanaDevnet];
+const networks = [base, solana, mainnet, arbitrum, optimism, polygon];
 
 // Create App Kit with multi-chain support
 createAppKit({
