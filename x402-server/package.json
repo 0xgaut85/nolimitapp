@@ -19,7 +19,6 @@
   },
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/sdk": "0.71.0",
     "@prisma/client": "^6.0.0",
     "@types/cors": "2.8.19",
     "@types/express": "5.0.5",
