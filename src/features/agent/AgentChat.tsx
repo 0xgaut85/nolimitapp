@@ -94,7 +94,7 @@ export function AgentChat() {
           <div>
             <h2 className="text-2xl font-mono text-white glow-text flex items-center gap-3">
               <span className="w-3 h-3 bg-accent-glow animate-pulse rounded-full shadow-[0_0_10px_#7fff00]" />
-              [AI_AGENT_TERMINAL]
+              [noLimit_LLM_TERMINAL]
             </h2>
             <p className="text-sm text-white/40 mt-1 font-mono pl-6">
               SECURE_CONNECTION_ESTABLISHED // FEE: {config.fees.agent} USDC

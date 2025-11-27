@@ -4,10 +4,11 @@ import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { useAccount, useBalance, useDisconnect, useReadContract } from 'wagmi';
+import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
-import { Address, erc20Abi, formatUnits } from 'viem';
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
+import { config } from '@/config';
 
 type PhantomProvider = {
   publicKey?: PublicKey;
@@ -16,6 +17,7 @@ type PhantomProvider = {
   disconnect: () => Promise<void>;
   on: (event: 'accountChanged' | 'disconnect', handler: (publicKey: PublicKey | null) => void) => void;
   off?: (event: 'accountChanged' | 'disconnect', handler: (publicKey: PublicKey | null) => void) => void;
+  signAndSendTransaction: (transaction: VersionedTransaction) => Promise<{ signature: string }>;
 };
 
 declare global {
@@ -101,7 +103,9 @@ export function SwapForm() {
   const [recipientAddress, setRecipientAddress] = useState('');
   const [tokenPrices, setTokenPrices] = useState<Partial<Record<TokenSymbol, TokenPrice>>>({});
   const [pricesLoading, setPricesLoading] = useState(false);
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+  const [swapSuccess, setSwapSuccess] = useState(false);
 
   const [phantomProvider, setPhantomProvider] = useState<PhantomProvider | null>(null);
   const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
@@ -205,6 +209,11 @@ export function SwapForm() {
       const walletAddress = response.publicKey.toString();
       setPhantomProvider(provider);
       setSolanaAddress(walletAddress);
+      // Auto-select Solana chain when Phantom connects
+      setFromChain('Solana');
+      setToChain('Solana');
+      setFromToken('SOL');
+      setToToken('USDC');
       await fetchSolanaBalances(response.publicKey);
     } catch (error) {
       console.error('[Swap] Phantom connection failed', error);
@@ -365,6 +374,72 @@ export function SwapForm() {
     setToToken(fromToken);
     setFromAmount(toAmount);
     setToAmount(fromAmount);
+  };
+
+  const { sendTransaction } = useSendTransaction();
+
+  const executeSwap = async () => {
+    if (!fromAmount || !toAmount) return;
+    
+    setIsSwapping(true);
+    setSwapError(null);
+    setSwapSuccess(false);
+
+    try {
+      const userAddress = fromChain === 'Solana' ? solanaAddress : address;
+      if (!userAddress) {
+        throw new Error('Please connect your wallet');
+      }
+
+      // Convert amount to smallest unit
+      const decimals = fromToken === 'SOL' ? 9 : fromToken === 'ETH' ? 18 : 6;
+      const amountInSmallestUnit = parseUnits(fromAmount, decimals).toString();
+
+      // Call our x402 server to get the swap transaction
+      const response = await fetch(`${config.x402ServerUrl}/api/swap/transaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chain: fromChain.toLowerCase(),
+          fromToken,
+          toToken,
+          amount: amountInSmallestUnit,
+          userAddress,
+          slippage: parseFloat(slippage),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to get swap transaction');
+      }
+
+      if (fromChain === 'Solana' && phantomProvider) {
+        // Execute Solana swap via Phantom
+        const txBuffer = Buffer.from(data.tx, 'base64');
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        
+        const signedTx = await phantomProvider.signAndSendTransaction(transaction);
+        console.log('[Swap] Solana transaction sent:', signedTx);
+      } else if (fromChain === 'Base' && data.tx) {
+        // Execute Base swap via wagmi
+        sendTransaction({
+          to: data.tx.to as Address,
+          data: data.tx.data as `0x${string}`,
+          value: BigInt(data.tx.value || '0'),
+        });
+      }
+
+      setSwapSuccess(true);
+      setFromAmount('');
+      setToAmount('');
+    } catch (error) {
+      console.error('[Swap] Error:', error);
+      setSwapError(error instanceof Error ? error.message : 'Swap failed');
+    } finally {
+      setIsSwapping(false);
+    }
   };
 
   const formatBalance = (balance?: { value: bigint; decimals: number }) => {
@@ -575,17 +650,13 @@ export function SwapForm() {
                   setShowFromTokenDropdown(false);
                   setShowToTokenDropdown(false);
                 }}
-                className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors text-left"
+                className="w-full bg-black border border-white/20 text-white px-3 py-2 font-mono text-sm flex items-center gap-2 rounded-lg hover:border-white/30 transition-colors text-left relative"
               >
-                {fromChain}
-                <div className="absolute left-3 top-[38px] w-5 h-5">
-                  <Image src={getChainLogo(fromChain)} alt={fromChain} width={20} height={20} className="rounded-full" />
-                </div>
-                <div className="absolute right-3 top-[38px] text-white/50">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
+                <Image src={getChainLogo(fromChain)} alt={fromChain} width={20} height={20} className="rounded-full flex-shrink-0" />
+                <span className="flex-1">{fromChain}</span>
+                <svg className="w-4 h-4 text-white/50 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative z-30 overflow-visible">
@@ -674,17 +745,13 @@ export function SwapForm() {
                   setShowFromTokenDropdown(false);
                   setShowToTokenDropdown(false);
                 }}
-                className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors text-left"
+                className="w-full bg-black border border-white/20 text-white px-3 py-2 font-mono text-sm flex items-center gap-2 rounded-lg hover:border-white/30 transition-colors text-left relative"
               >
-                {toChain}
-                <div className="absolute left-3 top-[38px] w-5 h-5">
-                  <Image src={getChainLogo(toChain)} alt={toChain} width={20} height={20} className="rounded-full" />
-                </div>
-                <div className="absolute right-3 top-[38px] text-white/50">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
+                <Image src={getChainLogo(toChain)} alt={toChain} width={20} height={20} className="rounded-full flex-shrink-0" />
+                <span className="flex-1">{toChain}</span>
+                <svg className="w-4 h-4 text-white/50 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative z-20 overflow-visible">
@@ -801,20 +868,39 @@ export function SwapForm() {
             </div>
           )}
 
+          {swapError && (
+            <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-lg font-mono text-sm mt-4">
+              {swapError}
+            </div>
+          )}
+
+          {swapSuccess && (
+            <div className="bg-green-500/10 border border-green-500/30 text-green-400 p-3 rounded-lg font-mono text-sm mt-4">
+              Swap executed successfully!
+            </div>
+          )}
+
           <motion.button
-            whileHover={{ scale: actionDisabled ? 1 : 1.02 }}
-            whileTap={{ scale: actionDisabled ? 1 : 0.98 }}
-            disabled={actionDisabled}
-            onClick={() => setShowComingSoon(true)}
-            className="w-full bg-[#b8d1b3] text-black py-4 md:py-5 font-mono text-base md:text-lg font-bold hover:bg-[#a8c1a3] hover:shadow-lg hover:shadow-[#b8d1b3]/20 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed uppercase tracking-wider mt-6 rounded-xl"
+            whileHover={{ scale: actionDisabled || isSwapping ? 1 : 1.02 }}
+            whileTap={{ scale: actionDisabled || isSwapping ? 1 : 0.98 }}
+            disabled={actionDisabled || isSwapping}
+            onClick={executeSwap}
+            className="w-full bg-[#b8d1b3] text-black py-4 md:py-5 font-mono text-base md:text-lg font-bold hover:bg-[#a8c1a3] hover:shadow-lg hover:shadow-[#b8d1b3]/20 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed uppercase tracking-wider mt-6 rounded-xl flex items-center justify-center gap-2"
           >
-            {!displayAddress
-              ? 'Connect Wallet to Swap'
-              : !fromAmount || !toAmount
-              ? 'Enter Amount'
-              : sendToDifferentWallet && !recipientAddress
-              ? 'Enter Recipient Address'
-              : 'Execute Swap'}
+            {isSwapping ? (
+              <>
+                <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                Processing...
+              </>
+            ) : !displayAddress ? (
+              'Connect Wallet to Swap'
+            ) : !fromAmount || !toAmount ? (
+              'Enter Amount'
+            ) : sendToDifferentWallet && !recipientAddress ? (
+              'Enter Recipient Address'
+            ) : (
+              'Execute Swap'
+            )}
           </motion.button>
         </div>
       </motion.div>
@@ -909,37 +995,6 @@ export function SwapForm() {
         </div>,
       )}
 
-      {showComingSoon && (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4" style={{ backdropFilter: 'blur(8px)', backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative max-w-md w-full rounded-3xl p-8 border border-white/20 bg-black/70 text-center space-y-4"
-          >
-            <button
-              onClick={() => setShowComingSoon(false)}
-              className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            <Image src="/logo3.svg" alt="NoLimit" width={160} height={160} className="mx-auto" />
-            <h3 className="text-2xl font-mono text-white uppercase tracking-wider">Coming Soon</h3>
-            <p className="text-sm font-mono text-white/70">
-              Execution is in final QA. Swaps will be enabled once the Jupiter + 1inch routing meets our privacy guarantees.
-            </p>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setShowComingSoon(false)}
-              className="w-full bg-[#b8d1b3] text-black py-3 font-mono text-sm font-bold rounded-xl"
-            >
-              Got it
-            </motion.button>
-          </motion.div>
-        </div>
-      )}
     </>
   );
 }

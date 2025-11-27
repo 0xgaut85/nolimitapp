@@ -1,16 +1,24 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/Card';
-import { HeroBackground } from '@/components/HeroBackground';
+
+// Dynamically import Three.js component to avoid SSR issues
+const HeroAurora = dynamic(() => import('@/components/HeroAurora'), {
+  ssr: false,
+  loading: () => <div className="absolute inset-0 bg-black" />,
+});
 
 export default function HomePage() {
   return (
     <>
-      {/* Hero Background only on landing page */}
-      <HeroBackground />
+      {/* Three.js Aurora Background */}
+      <div className="fixed inset-0 -z-10">
+        <HeroAurora />
+      </div>
       
-      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center max-w-5xl mx-auto">
+      <div className="min-h-[80vh] flex flex-col items-center justify-center text-center max-w-5xl mx-auto relative z-10">
         {/* Hero Title */}
         <div className="relative mb-12 group">
           <div className="absolute -inset-1 bg-accent-glow/20 blur-3xl opacity-20 group-hover:opacity-40 transition-opacity duration-1000" />
@@ -31,7 +39,7 @@ export default function HomePage() {
         {/* Feature Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full">
           <FeatureCard
-            title="AI_AGENT"
+            title="noLimit_LLM"
             description="Secure terminal for autonomous interactions powered by x402 payments."
             href="/agent"
             delay={0}
@@ -43,7 +51,7 @@ export default function HomePage() {
             delay={0.1}
               />
           <FeatureCard
-            title="ATOMIC_SWAP"
+            title="noLimit_Swap"
             description="High-frequency trading router with privacy preservation."
             href="/swap"
             delay={0.2}

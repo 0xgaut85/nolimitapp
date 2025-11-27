@@ -56,12 +56,12 @@ async function chatWithAgent(message: string, userAddress: string) {
         <Section title="04_FEE_STRUCTURE">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="p-6" glow>
-              <h4 className="text-accent-glow font-mono mb-2">[AI_AGENT]</h4>
+              <h4 className="text-accent-glow font-mono mb-2">[noLimit_LLM]</h4>
               <p className="text-2xl text-white font-mono">0.05 USDC</p>
               <p className="text-xs text-white/40 font-mono mt-2">PER_MESSAGE_REQUEST</p>
             </Card>
             <Card className="p-6">
-              <h4 className="text-accent-glow font-mono mb-2">[SWAP_ROUTER]</h4>
+              <h4 className="text-accent-glow font-mono mb-2">[noLimit_Swap]</h4>
               <p className="text-2xl text-white font-mono">0.10 USDC</p>
               <p className="text-xs text-white/40 font-mono mt-2">PER_TRANSACTION_EXECUTION</p>
             </Card>
