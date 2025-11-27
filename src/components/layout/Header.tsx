@@ -59,19 +59,6 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
-          {/* Beta Access Button - Hidden on small screens if needed */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => {
-              const tweet = "Been waiting for an AI model that doesn't hold back. @nolimitFDN I want early access to the most powerful uncensored LLM, let me in!";
-              window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(tweet)}`, '_blank');
-            }}
-            className="hidden lg:block bg-white/10 backdrop-blur-sm text-white px-4 py-2 font-mono text-xs font-bold hover:bg-white/20 transition-colors whitespace-nowrap border border-white/20"
-          >
-            Request Beta Access
-          </motion.button>
-
           <WalletButton />
 
           <button
