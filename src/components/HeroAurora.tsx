@@ -8,7 +8,6 @@ import type { ShaderMaterial } from "three";
 
 /**
  * Aurora Flow Background - Exact copy from main site (HeroInfinity.tsx)
- * Premium WebGL backdrop with flowing aurora effect
  */
 
 const BRAND = {
@@ -39,7 +38,7 @@ const AuroraMaterial = () => {
     []
   );
 
-  const vertex = /* glsl */ `
+  const vertex = `
     varying vec2 vUv;
     void main(){
       vUv = uv;
@@ -47,7 +46,7 @@ const AuroraMaterial = () => {
     }
   `;
 
-  const fragment = /* glsl */ `
+  const fragment = `
     precision highp float;
     varying vec2 vUv;
     uniform float u_time; 
@@ -124,11 +123,10 @@ const AuroraMaterial = () => {
 };
 
 function AuroraPlane(){
-  const mat = <AuroraMaterial />;
   return (
     <mesh position={[0,0,0]}>
       <planeGeometry args={[12, 7, 1, 1]} />
-      {mat}
+      <AuroraMaterial />
     </mesh>
   );
 }
@@ -184,10 +182,8 @@ function Scene(){
 
 export default function HeroAurora(){
   return (
-    <div className="relative w-full h-[60vh] md:h-[75vh] lg:h-[85vh] overflow-hidden bg-white">
-      <Canvas dpr={[1,2]} camera={{ position:[0,0,6], fov: 42 }}>
-        <Scene />
-      </Canvas>
-    </div>
+    <Canvas dpr={[1,2]} camera={{ position:[0,0,6], fov: 42 }} style={{ width: '100%', height: '100%' }}>
+      <Scene />
+    </Canvas>
   );
 }
