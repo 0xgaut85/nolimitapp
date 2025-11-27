@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Providers } from '@/components/Providers';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PasswordGate } from '@/components/PasswordGate';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -17,9 +18,11 @@ export default function RootLayout({
     <html lang="en">
       <body className="dark">
         <Providers>
-          <AppLayout>
-        {children}
-          </AppLayout>
+          <PasswordGate>
+            <AppLayout>
+              {children}
+            </AppLayout>
+          </PasswordGate>
         </Providers>
       </body>
     </html>
