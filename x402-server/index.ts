@@ -21,6 +21,9 @@ const cdpApiKeyId = process.env.CDP_API_KEY_ID;
 const cdpApiKeySecret = process.env.CDP_API_KEY_SECRET;
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 4000;
 
+// 1inch API Key
+const ONEINCH_API_KEY = process.env.ONEINCH_API_KEY;
+
 if (!facilitatorUrl || !payTo) {
   console.error('Missing required environment variables: FACILITATOR_URL or MERCHANT_ADDRESS');
   process.exit(1);
@@ -139,6 +142,75 @@ async function savePayment(userId: string, service: string, amount: string, chai
   });
 }
 
+// --- SWAP INTEGRATIONS ---
+
+// Jupiter (Solana) Integration
+async function getJupiterSwapTransaction(userPublicKey: string, inputMint: string, outputMint: string, amount: string, slippageBps: number = 50) {
+  // 1. Get Quote
+  const quoteUrl = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  const quoteResponse = await fetch(quoteUrl);
+  const quoteData = await quoteResponse.json();
+
+  if (!quoteData || quoteData.error) {
+    throw new Error(`Jupiter Quote Error: ${quoteData.error || 'Unknown error'}`);
+  }
+
+  // 2. Get Swap Transaction
+  const swapResponse = await fetch('https://quote-api.jup.ag/v6/swap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      quoteResponse: quoteData,
+      userPublicKey,
+      wrapAndUnwrapSol: true,
+    })
+  });
+
+  const swapData = await swapResponse.json();
+  
+  if (!swapData || !swapData.swapTransaction) {
+    throw new Error('Failed to generate Jupiter swap transaction');
+  }
+
+  return {
+    chain: 'solana',
+    tx: swapData.swapTransaction, // Base64 encoded transaction
+    quote: quoteData
+  };
+}
+
+// 1inch (Base) Integration
+async function get1inchSwapTransaction(userAddress: string, srcToken: string, dstToken: string, amount: string, slippage: number = 1) {
+  if (!ONEINCH_API_KEY) {
+    throw new Error('1inch API Key not configured on server');
+  }
+
+  const chainId = 8453; // Base
+  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true`;
+
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${ONEINCH_API_KEY}`
+    }
+  });
+
+  const data = await response.json();
+
+  if (data.error || data.statusCode) {
+    throw new Error(`1inch Error: ${data.description || data.error}`);
+  }
+
+  return {
+    chain: 'base',
+    tx: data.tx, // { to, data, value, gasPrice, ... }
+    quote: {
+      toAmount: data.dstAmount
+    }
+  };
+}
+
+// --- ENDPOINTS ---
+
 // Route: AI Agent Chat
 app.post('/api/agent/chat', async (req, res) => {
   if (res.headersSent) return;
@@ -150,13 +222,9 @@ app.post('/api/agent/chat', async (req, res) => {
       return res.status(400).json({ error: 'Missing message or userAddress' });
     }
 
-    // Get or create user
     const user = await getOrCreateUser(userAddress);
-    
-    // Save payment
     await savePayment(user.id, 'agent', '0.05', 'base');
     
-    // Call LLM (Anthropic as placeholder for "NoLimit LLM")
     const response = await anthropic.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 1024,
@@ -165,7 +233,6 @@ app.post('/api/agent/chat', async (req, res) => {
     
     const assistantMessage = response.content[0].type === 'text' ? response.content[0].text : '';
     
-    // Save usage
     await prisma.agentUsage.create({
       data: {
         userId: user.id,
@@ -182,33 +249,56 @@ app.post('/api/agent/chat', async (req, res) => {
   }
 });
 
-// Route: Swap Transaction (generates swap calldata)
+// Route: Swap Transaction
 app.post('/api/swap/transaction', async (req, res) => {
   if (res.headersSent) return;
   
   try {
-    const { chain, fromToken, toToken, amount, userAddress } = req.body;
+    const { chain, fromToken, toToken, amount, userAddress, slippage } = req.body;
     
     if (!chain || !fromToken || !toToken || !amount || !userAddress) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     
-    // Get or create user
     const user = await getOrCreateUser(userAddress);
-    
-    // Save payment
     await savePayment(user.id, 'swap', '0.10', chain);
     
-    // TODO: Integrate with Jupiter (Solana) or CowSwap (Base) APIs
-    // For now, return a placeholder response
-    const swapData = {
-      success: true,
-      message: 'Swap transaction generation coming soon',
-      chain,
-      fromToken,
-      toToken,
-      amount,
+    let swapResult;
+
+    // Token Mapping (simplified for demo)
+    // Real app would use a robust token list or pass raw addresses
+    const TOKENS: any = {
+      base: {
+        ETH: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        // Add more...
+      },
+      solana: {
+        SOL: 'So11111111111111111111111111111111111111112',
+        USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        // Add more...
+      }
     };
+
+    if (chain === 'solana') {
+      // Map symbols to mint addresses
+      const inputMint = TOKENS.solana[fromToken] || fromToken;
+      const outputMint = TOKENS.solana[toToken] || toToken;
+      
+      // Convert amount to atomic units (assuming frontend sends raw amount or handling decimals here)
+      // For now, assuming frontend sends atomic units or handling standard 6/9 decimals
+      // Better: Frontend sends raw amount.
+      // Note: Jupiter requires atomic units (integer).
+      
+      swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
+    } else if (chain === 'base') {
+      const srcToken = TOKENS.base[fromToken] || fromToken;
+      const dstToken = TOKENS.base[toToken] || toToken;
+      
+      swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
+    } else {
+      throw new Error('Unsupported chain');
+    }
     
     // Save swap usage
     await prisma.swapUsage.create({
@@ -218,12 +308,16 @@ app.post('/api/swap/transaction', async (req, res) => {
         fromToken,
         toToken,
         fromAmount: amount,
-        toAmount: '0', // TODO: Calculate from swap API
+        toAmount: swapResult.quote?.toAmount || '0', 
         fee: '0.10',
+        txHash: '', // Will be filled later if we track on-chain
       },
     });
     
-    res.json(swapData);
+    res.json({
+      success: true,
+      ...swapResult
+    });
   } catch (error: any) {
     console.error('[Swap] Error:', error);
     res.status(500).json({ error: error.message });
@@ -240,7 +334,6 @@ app.get('/api/stats', async (req, res) => {
       prisma.swapUsage.count(),
     ]);
     
-    // Calculate total revenue (sum of all payment amounts)
     const payments = await prisma.payment.findMany();
     const totalRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
     
