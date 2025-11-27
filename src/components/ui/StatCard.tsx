@@ -2,7 +2,13 @@
 
 import { Card } from './Card';
 
-export function StatCard({ title, value }: { title: string; value: string }) {
+type StatCardProps = {
+  title: string;
+  value: string;
+  subtitle?: string;
+};
+
+export function StatCard({ title, value, subtitle }: StatCardProps) {
   return (
     <Card glow className="p-6 group">
       <div className="flex justify-between items-start mb-4">
@@ -12,6 +18,9 @@ export function StatCard({ title, value }: { title: string; value: string }) {
       <p className="text-3xl font-mono text-white glow-text tracking-tight">
         {value}
       </p>
+      {subtitle && (
+        <p className="text-xs font-mono text-white/40 mt-2">{subtitle}</p>
+      )}
       
       {/* Decorative data line */}
       <div className="mt-4 h-[1px] w-full bg-white/5 overflow-hidden">

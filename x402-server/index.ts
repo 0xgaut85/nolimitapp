@@ -374,6 +374,212 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
+// Route: Detailed Stats for Dashboard (public)
+app.get('/api/stats/detailed', async (req, res) => {
+  try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    // Get all data
+    const [
+      totalUsers,
+      newUsersToday,
+      newUsersWeek,
+      agentMessages,
+      swapCount,
+      payments,
+      recentPayments,
+      agentUsages,
+      swapUsages,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { createdAt: { gte: oneDayAgo } } }),
+      prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      prisma.agentUsage.count(),
+      prisma.swapUsage.count(),
+      prisma.payment.findMany({ orderBy: { createdAt: 'desc' } }),
+      prisma.payment.findMany({ 
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.agentUsage.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.swapUsage.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    // Calculate revenue
+    const totalRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const agentRevenue = payments.filter(p => p.service === 'agent').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const swapRevenue = payments.filter(p => p.service === 'swap').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+
+    // Revenue by chain
+    const baseRevenue = payments.filter(p => p.chain === 'base').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const solanaRevenue = payments.filter(p => p.chain === 'solana').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+
+    // Daily revenue for chart (last 30 days)
+    const dailyRevenue: Record<string, number> = {};
+    const dailyAgentUsage: Record<string, number> = {};
+    const dailySwapUsage: Record<string, number> = {};
+
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateKey = date.toISOString().split('T')[0];
+      dailyRevenue[dateKey] = 0;
+      dailyAgentUsage[dateKey] = 0;
+      dailySwapUsage[dateKey] = 0;
+    }
+
+    recentPayments.forEach(p => {
+      const dateKey = p.createdAt.toISOString().split('T')[0];
+      if (dailyRevenue[dateKey] !== undefined) {
+        dailyRevenue[dateKey] += parseFloat(p.amount || '0');
+      }
+    });
+
+    agentUsages.forEach(a => {
+      const dateKey = a.createdAt.toISOString().split('T')[0];
+      if (dailyAgentUsage[dateKey] !== undefined) {
+        dailyAgentUsage[dateKey]++;
+      }
+    });
+
+    swapUsages.forEach(s => {
+      const dateKey = s.createdAt.toISOString().split('T')[0];
+      if (dailySwapUsage[dateKey] !== undefined) {
+        dailySwapUsage[dateKey]++;
+      }
+    });
+
+    // Format chart data
+    const revenueChartData = Object.entries(dailyRevenue).map(([date, revenue]) => ({
+      date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      revenue: parseFloat(revenue.toFixed(2)),
+    }));
+
+    const usageChartData = Object.entries(dailyAgentUsage).map(([date, agent]) => ({
+      date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      agent,
+      swap: dailySwapUsage[date] || 0,
+    }));
+
+    // Recent transactions (last 20)
+    const recentTransactions = payments.slice(0, 20).map(p => ({
+      id: p.id,
+      type: p.service,
+      amount: p.amount,
+      chain: p.chain,
+      status: p.status,
+      createdAt: p.createdAt,
+    }));
+
+    res.json({
+      overview: {
+        totalUsers,
+        newUsersToday,
+        newUsersWeek,
+        totalRevenue: totalRevenue.toFixed(2),
+        agentRevenue: agentRevenue.toFixed(2),
+        swapRevenue: swapRevenue.toFixed(2),
+        baseRevenue: baseRevenue.toFixed(2),
+        solanaRevenue: solanaRevenue.toFixed(2),
+        agentMessages,
+        swapCount,
+      },
+      charts: {
+        revenue: revenueChartData,
+        usage: usageChartData,
+      },
+      recentTransactions,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to load detailed stats';
+    console.error('[DetailedStats] Error:', error);
+    res.status(500).json({ error: message });
+  }
+});
+
+// Route: User-specific stats (requires wallet address)
+app.get('/api/stats/user/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    
+    if (!address) {
+      return res.status(400).json({ error: 'Missing wallet address' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { address },
+      include: {
+        payments: { orderBy: { createdAt: 'desc' }, take: 50 },
+        agentUsages: { orderBy: { createdAt: 'desc' }, take: 50 },
+        swapUsages: { orderBy: { createdAt: 'desc' }, take: 50 },
+      },
+    });
+
+    if (!user) {
+      return res.json({
+        exists: false,
+        totalSpent: '0.00',
+        agentMessages: 0,
+        swapCount: 0,
+        payments: [],
+        agentHistory: [],
+        swapHistory: [],
+      });
+    }
+
+    const totalSpent = user.payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+
+    res.json({
+      exists: true,
+      userId: user.id,
+      address: user.address,
+      joinedAt: user.createdAt,
+      totalSpent: totalSpent.toFixed(2),
+      agentMessages: user.agentUsages.length,
+      swapCount: user.swapUsages.length,
+      payments: user.payments.map(p => ({
+        id: p.id,
+        type: p.service,
+        amount: p.amount,
+        chain: p.chain,
+        status: p.status,
+        txHash: p.txHash,
+        createdAt: p.createdAt,
+      })),
+      agentHistory: user.agentUsages.map(a => ({
+        id: a.id,
+        message: a.message.substring(0, 100) + (a.message.length > 100 ? '...' : ''),
+        fee: a.fee,
+        createdAt: a.createdAt,
+      })),
+      swapHistory: user.swapUsages.map(s => ({
+        id: s.id,
+        chain: s.chain,
+        fromToken: s.fromToken,
+        toToken: s.toToken,
+        fromAmount: s.fromAmount,
+        toAmount: s.toAmount,
+        fee: s.fee,
+        txHash: s.txHash,
+        createdAt: s.createdAt,
+      })),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to load user stats';
+    console.error('[UserStats] Error:', error);
+    res.status(500).json({ error: message });
+  }
+});
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'NoLimit x402 Server' });
