@@ -129,7 +129,7 @@ nolimit-app/
    - Configure custom domains
 
 5. **Future Enhancements**:
-   - Integrate real Jupiter/CowSwap APIs
+   - Integrate real Jupiter / 1inch APIs
    - Add WebSocket support for live dashboard updates
    - Implement API key authentication system
    - Add Solana wallet support via Reown

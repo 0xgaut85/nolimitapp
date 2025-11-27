@@ -5,7 +5,6 @@
 
 import { config } from 'dotenv';
 import express from 'express';
-import cors from 'cors';
 import { paymentMiddleware, Resource } from 'x402-express';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaClient } from '@prisma/client';
@@ -145,7 +144,33 @@ async function savePayment(userId: string, service: string, amount: string, chai
 // --- SWAP INTEGRATIONS ---
 
 // Jupiter (Solana) Integration
-async function getJupiterSwapTransaction(userPublicKey: string, inputMint: string, outputMint: string, amount: string, slippageBps: number = 50) {
+type OneInchSwapTx = {
+  to: string;
+  data: string;
+  value: string;
+  gasPrice?: string;
+  gas?: string;
+};
+
+type SwapResult =
+  | {
+      chain: 'solana';
+      tx: string;
+      quote: { toAmount?: string };
+    }
+  | {
+      chain: 'base';
+      tx: OneInchSwapTx;
+      quote: { toAmount?: string };
+    };
+
+async function getJupiterSwapTransaction(
+  userPublicKey: string,
+  inputMint: string,
+  outputMint: string,
+  amount: string,
+  slippageBps = 50,
+): Promise<SwapResult> {
   // 1. Get Quote
   const quoteUrl = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
   const quoteResponse = await fetch(quoteUrl);
@@ -174,13 +199,21 @@ async function getJupiterSwapTransaction(userPublicKey: string, inputMint: strin
 
   return {
     chain: 'solana',
-    tx: swapData.swapTransaction, // Base64 encoded transaction
-    quote: quoteData
+    tx: swapData.swapTransaction,
+    quote: {
+      toAmount: quoteData.outAmount,
+    },
   };
 }
 
 // 1inch (Base) Integration
-async function get1inchSwapTransaction(userAddress: string, srcToken: string, dstToken: string, amount: string, slippage: number = 1) {
+async function get1inchSwapTransaction(
+  userAddress: string,
+  srcToken: string,
+  dstToken: string,
+  amount: string,
+  slippage = 1,
+): Promise<SwapResult> {
   if (!ONEINCH_API_KEY) {
     throw new Error('1inch API Key not configured on server');
   }
@@ -202,10 +235,10 @@ async function get1inchSwapTransaction(userAddress: string, srcToken: string, ds
 
   return {
     chain: 'base',
-    tx: data.tx, // { to, data, value, gasPrice, ... }
+    tx: data.tx as OneInchSwapTx,
     quote: {
-      toAmount: data.dstAmount
-    }
+      toAmount: data.dstAmount,
+    },
   };
 }
 
@@ -243,9 +276,10 @@ app.post('/api/agent/chat', async (req, res) => {
     });
     
     res.json({ response: assistantMessage });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to complete agent request';
     console.error('[Agent] Error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -254,7 +288,7 @@ app.post('/api/swap/transaction', async (req, res) => {
   if (res.headersSent) return;
   
   try {
-    const { chain, fromToken, toToken, amount, userAddress, slippage } = req.body;
+    const { chain, fromToken, toToken, amount, userAddress } = req.body;
     
     if (!chain || !fromToken || !toToken || !amount || !userAddress) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -263,38 +297,27 @@ app.post('/api/swap/transaction', async (req, res) => {
     const user = await getOrCreateUser(userAddress);
     await savePayment(user.id, 'swap', '0.10', chain);
     
-    let swapResult;
+    let swapResult: SwapResult;
 
-    // Token Mapping (simplified for demo)
-    // Real app would use a robust token list or pass raw addresses
-    const TOKENS: any = {
+    const tokens: Record<'base' | 'solana', Record<string, string>> = {
       base: {
         ETH: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        // Add more...
       },
       solana: {
         SOL: 'So11111111111111111111111111111111111111112',
         USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-        // Add more...
-      }
+        USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+      },
     };
 
     if (chain === 'solana') {
-      // Map symbols to mint addresses
-      const inputMint = TOKENS.solana[fromToken] || fromToken;
-      const outputMint = TOKENS.solana[toToken] || toToken;
-      
-      // Convert amount to atomic units (assuming frontend sends raw amount or handling decimals here)
-      // For now, assuming frontend sends atomic units or handling standard 6/9 decimals
-      // Better: Frontend sends raw amount.
-      // Note: Jupiter requires atomic units (integer).
-      
+      const inputMint = tokens.solana[fromToken] || fromToken;
+      const outputMint = tokens.solana[toToken] || toToken;
       swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
     } else if (chain === 'base') {
-      const srcToken = TOKENS.base[fromToken] || fromToken;
-      const dstToken = TOKENS.base[toToken] || toToken;
-      
+      const srcToken = tokens.base[fromToken] || fromToken;
+      const dstToken = tokens.base[toToken] || toToken;
       swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
     } else {
       throw new Error('Unsupported chain');
@@ -316,25 +339,25 @@ app.post('/api/swap/transaction', async (req, res) => {
     
     res.json({
       success: true,
-      ...swapResult
+      ...swapResult,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to execute swap';
     console.error('[Swap] Error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: message });
   }
 });
 
 // Route: Stats (public, no payment required)
 app.get('/api/stats', async (req, res) => {
   try {
-    const [totalUsers, totalPayments, agentMessages, swapCount] = await Promise.all([
+    const [totalUsers, agentMessages, swapCount, payments] = await Promise.all([
       prisma.user.count(),
-      prisma.payment.aggregate({ _sum: { amount: true } }),
       prisma.agentUsage.count(),
       prisma.swapUsage.count(),
+      prisma.payment.findMany(),
     ]);
     
-    const payments = await prisma.payment.findMany();
     const totalRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
     
     res.json({
@@ -344,9 +367,10 @@ app.get('/api/stats', async (req, res) => {
       swapCount,
       lastUpdated: new Date().toISOString(),
     });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to load stats';
     console.error('[Stats] Error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -356,13 +380,15 @@ app.get('/', (req, res) => {
 });
 
 // Error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (res.headersSent) return;
+  void _next;
   
   console.error('[Error]:', err);
+  const message = err instanceof Error ? err.message : 'An error occurred';
   res.status(500).json({
     error: 'Internal server error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred',
+    message: process.env.NODE_ENV === 'development' ? message : 'An error occurred',
   });
 });
 

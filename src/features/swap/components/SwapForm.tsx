@@ -1,382 +1,947 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAccount, useDisconnect } from 'wagmi';
+import { motion } from 'framer-motion';
+import { useAccount, useBalance, useDisconnect, useReadContract } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
+import { Address, erc20Abi, formatUnits } from 'viem';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
-// Token interface
-interface Token {
-  symbol: string;
-  name: string;
-  logo: string;
+type PhantomProvider = {
+  publicKey?: PublicKey;
+  isPhantom?: boolean;
+  connect: (options?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: PublicKey }>;
+  disconnect: () => Promise<void>;
+  on: (event: 'accountChanged' | 'disconnect', handler: (publicKey: PublicKey | null) => void) => void;
+  off?: (event: 'accountChanged' | 'disconnect', handler: (publicKey: PublicKey | null) => void) => void;
+};
+
+declare global {
+  interface Window {
+    phantom?: { solana?: PhantomProvider };
+    solana?: PhantomProvider;
+  }
 }
 
-// Chain interface
-interface Chain {
-  name: string;
-  logo: string;
+type ChainName = 'Base' | 'Solana';
+type TokenSymbol = 'ETH' | 'SOL' | 'USDT' | 'USDC';
+type DropdownType = 'fromChain' | 'toChain' | 'fromToken' | 'toToken';
+
+interface TokenPrice {
+  usd: number;
+  change: number;
 }
+
+interface DropdownPosition {
+  top: number;
+  left: number;
+  width: number;
+}
+
+const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+const HELIUS_ENDPOINT =
+  process.env.NEXT_PUBLIC_HELIUS_RPC_URL ??
+  'https://mainnet.helius-rpc.com/?api-key=112de5d5-6530-46c2-b382-527e71c48e68';
+const BASE_CHAIN_ID = 8453;
+
+const chainOptions: { name: ChainName; logo: string }[] = [
+  { name: 'Base', logo: '/logos/base.jpg' },
+  { name: 'Solana', logo: '/logos/solana.jpg' },
+];
+
+const tokenOptions: { symbol: TokenSymbol; name: string }[] = [
+  { symbol: 'ETH', name: 'Ethereum' },
+  { symbol: 'SOL', name: 'Solana' },
+  { symbol: 'USDT', name: 'Tether' },
+  { symbol: 'USDC', name: 'USD Coin' },
+];
+
+const tokenLogos: Record<TokenSymbol, string> = {
+  ETH: '/logos/ethereum.jpg',
+  SOL: '/logos/solana.jpg',
+  USDT: '/logos/usdt.png',
+  USDC: '/logos/usdc.png',
+};
+
+const chainToNativeToken: Record<ChainName, TokenSymbol> = {
+  Base: 'ETH',
+  Solana: 'SOL',
+};
+
+const tokenAddresses: Record<ChainName, Partial<Record<TokenSymbol, string>>> = {
+  Base: {
+    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  },
+  Solana: {
+    USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  },
+};
+
+const getChainLogo = (chain: ChainName) =>
+  chainOptions.find((option) => option.name === chain)?.logo ?? '/logos/base.jpg';
 
 export function SwapForm() {
   const { address, isConnected } = useAccount();
   const { open } = useAppKit();
   const { disconnect } = useDisconnect();
-  
-  // State
-  const [fromChain, setFromChain] = useState("Ethereum");
-  const [toChain, setToChain] = useState("Ethereum");
-  const [fromToken, setFromToken] = useState("ETH");
-  const [toToken, setToToken] = useState("USDT");
-  const [fromAmount, setFromAmount] = useState("");
-  const [slippage, setSlippage] = useState("0.5");
+
+  const [fromChain, setFromChain] = useState<ChainName>('Base');
+  const [toChain, setToChain] = useState<ChainName>('Base');
+  const [fromToken, setFromToken] = useState<TokenSymbol>('ETH');
+  const [toToken, setToToken] = useState<TokenSymbol>('USDT');
+  const [fromAmount, setFromAmount] = useState('');
+  const [toAmount, setToAmount] = useState('');
+  const [slippage, setSlippage] = useState('0.5');
   const [gasSpeed, setGasSpeed] = useState<'slow' | 'fast' | 'instant'>('fast');
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [mevProtection, setMevProtection] = useState(true);
+  const [sendToDifferentWallet, setSendToDifferentWallet] = useState(false);
+  const [recipientAddress, setRecipientAddress] = useState('');
+  const [tokenPrices, setTokenPrices] = useState<Partial<Record<TokenSymbol, TokenPrice>>>({});
+  const [pricesLoading, setPricesLoading] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
-  // Dropdown states
-  const [showFromChain, setShowFromChain] = useState(false);
-  const [showToChain, setShowToChain] = useState(false);
-  const [showFromToken, setShowFromToken] = useState(false);
-  const [showToToken, setShowToToken] = useState(false);
+  const [phantomProvider, setPhantomProvider] = useState<PhantomProvider | null>(null);
+  const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
+  const [solanaBalance, setSolanaBalance] = useState('0.0000');
+  const [solanaUsdcBalance, setSolanaUsdcBalance] = useState('0.0000');
+  const [solanaUsdtBalance, setSolanaUsdtBalance] = useState('0.0000');
 
-  // Refs for click outside
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [showFromChainDropdown, setShowFromChainDropdown] = useState(false);
+  const [showToChainDropdown, setShowToChainDropdown] = useState(false);
+  const [showFromTokenDropdown, setShowFromTokenDropdown] = useState(false);
+  const [showToTokenDropdown, setShowToTokenDropdown] = useState(false);
+  const [dropdownPositions, setDropdownPositions] = useState<Partial<Record<DropdownType, DropdownPosition>>>({});
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowFromChain(false);
-        setShowToChain(false);
-        setShowFromToken(false);
-        setShowToToken(false);
-      }
+  const fromChainButtonRef = useRef<HTMLButtonElement>(null);
+  const toChainButtonRef = useRef<HTMLButtonElement>(null);
+  const fromTokenButtonRef = useRef<HTMLButtonElement>(null);
+  const toTokenButtonRef = useRef<HTMLButtonElement>(null);
+
+  const { data: baseNativeBalance } = useBalance({
+    address,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(address) },
+  });
+
+  const { data: baseUsdcRaw } = useReadContract({
+    abi: erc20Abi,
+    address: tokenAddresses.Base.USDC as Address,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(address && tokenAddresses.Base.USDC) },
+  });
+
+  const getPhantom = useCallback((): PhantomProvider | null => {
+    if (typeof window === 'undefined') {
+      return null;
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    if (window.phantom?.solana?.isPhantom) {
+      return window.phantom.solana;
+    }
+    if (window.solana?.isPhantom) {
+      return window.solana;
+    }
+    return null;
   }, []);
 
-  const chains: Chain[] = [
-    { name: "Ethereum", logo: "/logos/ethereum.jpg" },
-    { name: "Arbitrum", logo: "/logos/arbitrum.jpg" },
-    { name: "Optimism", logo: "/logos/optimism.jpg" },
-    { name: "BSC", logo: "/logos/BSC.jpg" },
-    { name: "Avalanche", logo: "/logos/avalanche.jpg" },
-    { name: "Solana", logo: "/logos/solana.jpg" },
-    { name: "Base", logo: "/logos/base.jpg" },
-  ];
+  const fetchSolanaBalances = useCallback(async (publicKey: PublicKey) => {
+    try {
+      const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+      const lamports = await connection.getBalance(publicKey);
+      setSolanaBalance((lamports / LAMPORTS_PER_SOL).toFixed(4));
 
-  const tokens: Token[] = [
-    { symbol: "ETH", name: "Ethereum", logo: "/logos/ethereum.jpg" },
-    { symbol: "SOL", name: "Solana", logo: "/logos/solana.jpg" },
-    { symbol: "USDT", name: "Tether", logo: "/logos/usdt.png" },
-    { symbol: "USDC", name: "USD Coin", logo: "/logos/usdc.png" },
-    { symbol: "WBTC", name: "Wrapped Bitcoin", logo: "/logos/wbtc.jpeg" },
-  ];
+      type ParsedTokenAccount = {
+        account: {
+          data: {
+            parsed: {
+              info: {
+                mint: string;
+                tokenAmount: { uiAmount: number | null };
+              };
+            };
+          };
+        };
+      };
 
-  const getTokenLogo = (symbol: string) => tokens.find(t => t.symbol === symbol)?.logo || '/illustration/logox.jpg';
-  const getChainLogo = (name: string) => chains.find(c => c.name === name)?.logo || '/logos/ethereum.jpg';
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
+        programId: TOKEN_PROGRAM_ID,
+      });
+
+      let usdc = '0.0000';
+      let usdt = '0.0000';
+      (tokenAccounts.value as ParsedTokenAccount[]).forEach((account) => {
+        const mint = account.account.data.parsed.info.mint;
+        const amount = account.account.data.parsed.info.tokenAmount.uiAmount ?? 0;
+        if (mint === tokenAddresses.Solana.USDC) {
+          usdc = amount.toFixed(4);
+        }
+        if (mint === tokenAddresses.Solana.USDT) {
+          usdt = amount.toFixed(4);
+        }
+      });
+
+      setSolanaUsdcBalance(usdc);
+      setSolanaUsdtBalance(usdt);
+    } catch (error) {
+      console.error('[Swap] Failed to fetch Solana balances', error);
+      setSolanaBalance('0.0000');
+      setSolanaUsdcBalance('0.0000');
+      setSolanaUsdtBalance('0.0000');
+    }
+  }, []);
+
+  const connectPhantom = useCallback(async () => {
+    const provider = phantomProvider ?? getPhantom();
+    if (!provider) {
+      return;
+    }
+    try {
+      const response = await provider.connect();
+      const walletAddress = response.publicKey.toString();
+      setPhantomProvider(provider);
+      setSolanaAddress(walletAddress);
+      await fetchSolanaBalances(response.publicKey);
+    } catch (error) {
+      console.error('[Swap] Phantom connection failed', error);
+    }
+  }, [fetchSolanaBalances, getPhantom, phantomProvider]);
+
+  useEffect(() => {
+    setMounted(true);
+    setPhantomProvider(getPhantom());
+  }, [getPhantom]);
+
+  useEffect(() => {
+    if (!phantomProvider) {
+      return;
+    }
+    const handleAccountChanged = (publicKey: PublicKey | null) => {
+      if (publicKey) {
+        setSolanaAddress(publicKey.toString());
+        fetchSolanaBalances(publicKey);
+      } else {
+        setSolanaAddress(null);
+        setSolanaBalance('0.0000');
+        setSolanaUsdcBalance('0.0000');
+        setSolanaUsdtBalance('0.0000');
+      }
+    };
+    const handleDisconnect = () => {
+      setSolanaAddress(null);
+      setSolanaBalance('0.0000');
+      setSolanaUsdcBalance('0.0000');
+      setSolanaUsdtBalance('0.0000');
+    };
+
+    phantomProvider.on('accountChanged', handleAccountChanged);
+    phantomProvider.on('disconnect', handleDisconnect);
+
+    phantomProvider
+      .connect({ onlyIfTrusted: true })
+      .then(({ publicKey }) => {
+        if (publicKey) {
+          setSolanaAddress(publicKey.toString());
+          fetchSolanaBalances(publicKey);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      phantomProvider.off?.('accountChanged', handleAccountChanged);
+      phantomProvider.off?.('disconnect', handleDisconnect);
+    };
+  }, [fetchSolanaBalances, phantomProvider]);
+
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        setPricesLoading(true);
+        const response = await fetch(
+          'https://api.coingecko.com/api/v3/simple/price?ids=ethereum,solana,usd-coin,tether&vs_currencies=usd&include_24hr_change=true',
+        );
+        const data = await response.json();
+        setTokenPrices({
+          ETH: { usd: data.ethereum?.usd ?? 0, change: data.ethereum?.usd_24h_change ?? 0 },
+          SOL: { usd: data.solana?.usd ?? 0, change: data.solana?.usd_24h_change ?? 0 },
+          USDT: { usd: data.tether?.usd ?? 0, change: data.tether?.usd_24h_change ?? 0 },
+          USDC: { usd: data['usd-coin']?.usd ?? 1, change: data['usd-coin']?.usd_24h_change ?? 0 },
+        });
+      } catch (error) {
+        console.error('[Swap] Failed to fetch prices', error);
+      } finally {
+        setPricesLoading(false);
+      }
+    };
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!fromAmount) {
+      setToAmount('');
+      return;
+    }
+    const fromPrice = tokenPrices[fromToken]?.usd;
+    const toPrice = tokenPrices[toToken]?.usd;
+    if (fromPrice && toPrice) {
+      const rate = fromPrice / toPrice;
+      setToAmount((Number(fromAmount) * rate).toFixed(6));
+    } else {
+      setToAmount('');
+    }
+  }, [fromAmount, fromToken, toToken, tokenPrices]);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-dropdown-trigger]') && !target.closest('[data-dropdown-panel]')) {
+        setShowFromChainDropdown(false);
+        setShowToChainDropdown(false);
+        setShowFromTokenDropdown(false);
+        setShowToTokenDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  useEffect(() => {
+    const updatePositions = () => {
+      const positions: Partial<Record<DropdownType, DropdownPosition>> = {};
+      const buildPosition = (ref: RefObject<HTMLButtonElement | null>, type: DropdownType) => {
+        if (!ref.current) return;
+        const rect = ref.current.getBoundingClientRect();
+        positions[type] = {
+          top: rect.bottom + 8,
+          left: rect.left,
+          width: type.includes('Token') ? 256 : rect.width,
+        };
+      };
+      if (showFromChainDropdown) buildPosition(fromChainButtonRef, 'fromChain');
+      if (showToChainDropdown) buildPosition(toChainButtonRef, 'toChain');
+      if (showFromTokenDropdown) buildPosition(fromTokenButtonRef, 'fromToken');
+      if (showToTokenDropdown) buildPosition(toTokenButtonRef, 'toToken');
+      setDropdownPositions(positions);
+    };
+
+    updatePositions();
+    window.addEventListener('scroll', updatePositions, true);
+    window.addEventListener('resize', updatePositions);
+    return () => {
+      window.removeEventListener('scroll', updatePositions, true);
+      window.removeEventListener('resize', updatePositions);
+    };
+  }, [showFromChainDropdown, showToChainDropdown, showFromTokenDropdown, showToTokenDropdown]);
+
+  const handleConnectWallet = async () => {
+    if (!isConnected) {
+      open();
+    }
+    if (!solanaAddress) {
+      await connectPhantom();
+    }
+  };
+
+  const handleDisconnectWallet = async () => {
+    if (isConnected) {
+      await disconnect();
+    }
+    if (solanaAddress && phantomProvider) {
+      await phantomProvider.disconnect();
+    }
+  };
+
+  const handleSwapTokens = () => {
+    setFromChain(toChain);
+    setToChain(fromChain);
+    setFromToken(toToken);
+    setToToken(fromToken);
+    setFromAmount(toAmount);
+    setToAmount(fromAmount);
+  };
+
+  const formatBalance = (balance?: { value: bigint; decimals: number }) => {
+    if (!balance) return '0.0000';
+    return Number(formatUnits(balance.value, balance.decimals)).toFixed(4);
+  };
+
+  const getChainBalance = (chain: ChainName) => {
+    if (chain === 'Base') {
+      return formatBalance(baseNativeBalance);
+    }
+    return solanaBalance;
+  };
+
+  const formatErc20Balance = (value?: bigint, decimals = 6) => {
+    if (!value) return '0.0000';
+    return Number(formatUnits(value, decimals)).toFixed(4);
+  };
+
+  const getTokenBalance = (token: TokenSymbol) => {
+    if (token === 'SOL') {
+      return solanaBalance;
+    }
+    if (token === 'USDC') {
+      return solanaAddress ? solanaUsdcBalance : formatErc20Balance(baseUsdcRaw as bigint | undefined, 6);
+    }
+    if (token === 'USDT') {
+      return solanaAddress ? solanaUsdtBalance : '0.0000';
+    }
+    return formatBalance(baseNativeBalance);
+  };
+
+  const renderDropdownPortal = (
+    isVisible: boolean,
+    type: DropdownType,
+    content: React.ReactNode,
+  ): React.ReactPortal | null => {
+    if (!mounted || !isVisible) return null;
+    const position = dropdownPositions[type];
+    if (!position) return null;
+    return createPortal(
+      <div
+        style={{
+          position: 'fixed',
+          top: position.top,
+          left: position.left,
+          width: position.width,
+          zIndex: 1000,
+        }}
+        data-dropdown-panel
+      >
+        {content}
+      </div>,
+      document.body,
+    );
+  };
+
+  const dropdownClass =
+    'bg-black border border-white/20 rounded-lg shadow-2xl overflow-hidden backdrop-blur-lg';
+
+  const tokensWithBalances = tokenOptions.map((token) => ({
+    ...token,
+    balance: getTokenBalance(token.symbol),
+  }));
+
+  const displayAddress =
+    address && isConnected ? `${address.slice(0, 6)}...${address.slice(-4)}` : solanaAddress ? `${solanaAddress.slice(0, 6)}...${solanaAddress.slice(-4)}` : '';
+
+  const actionDisabled =
+    (!isConnected && !solanaAddress) ||
+    !fromAmount ||
+    !toAmount ||
+    (sendToDifferentWallet && !recipientAddress);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -30 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl relative rounded-3xl overflow-visible"
-      style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.005) 100%)',
-        boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 1px 0 rgba(255, 255, 255, 0.1)'
-      }}
-      ref={dropdownRef}
-    >
-      {/* Settings Bar */}
-      <div className="bg-white/5 backdrop-blur-xl px-6 py-4 border-b border-white/10 rounded-t-3xl">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-white font-mono text-base md:text-lg font-bold uppercase tracking-wider">Exchange Tokens</h2>
-            {!isConnected ? (
+    <>
+      <motion.div
+        initial={{ opacity: 0, x: -30 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="bg-white/5 backdrop-blur-xl border border-white/10 shadow-2xl relative rounded-3xl overflow-visible"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.005) 100%)',
+          boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 1px 0 rgba(255, 255, 255, 0.1)',
+        }}
+      >
+        <div className="bg-white/5 backdrop-blur-xl px-6 py-4 border-b border-white/10 rounded-t-3xl">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-mono text-base md:text-lg font-bold uppercase tracking-wider">
+                Exchange Tokens
+              </h2>
+              {displayAddress ? (
+                <button
+                  onClick={handleDisconnectWallet}
+                  className="bg-white/10 backdrop-blur-sm text-white px-5 py-2 font-mono text-xs md:text-sm font-bold hover:bg-white/20 transition-colors border border-white/20 whitespace-nowrap rounded-lg"
+                >
+                  {displayAddress}
+                </button>
+              ) : (
+                <button
+                  onClick={handleConnectWallet}
+                  className="bg-[#b8d1b3] text-black px-5 py-2 font-mono text-xs md:text-sm font-bold hover:bg-[#a8c1a3] transition-colors whitespace-nowrap rounded-lg"
+                >
+                  Connect Wallet
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-hide">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-white/70 font-mono text-xs uppercase tracking-wider">Slippage</span>
+                <div className="flex items-center gap-1.5">
+                  {['0.1', '0.5', '1.0'].map((preset) => (
+                    <button
+                      key={preset}
+                      onClick={() => setSlippage(preset)}
+                      className={`px-2 py-1 font-mono text-xs rounded-lg transition-colors ${
+                        slippage === preset
+                          ? 'bg-[#b8d1b3] text-black'
+                          : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
+                      }`}
+                    >
+                      {preset}%
+                    </button>
+                  ))}
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={slippage}
+                      onChange={(event) => setSlippage(event.target.value)}
+                      min="0.1"
+                      max="49"
+                      step="0.1"
+                      className="w-16 bg-black border border-white/20 text-white px-2 py-1 font-mono text-xs rounded-lg text-right focus:border-[#b8d1b3] focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 text-xs">%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="h-6 w-px bg-white/10 flex-shrink-0" />
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-white/70 font-mono text-xs uppercase tracking-wider">Gas</span>
+                <div className="flex items-center gap-1.5">
+                  {(['slow', 'fast', 'instant'] as const).map((speed) => (
+                    <button
+                      key={speed}
+                      onClick={() => setGasSpeed(speed)}
+                      className={`px-2.5 py-1 font-mono text-xs rounded-lg transition-colors capitalize ${
+                        gasSpeed === speed
+                          ? 'bg-[#b8d1b3] text-black'
+                          : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
+                      }`}
+                    >
+                      {speed}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-6 w-px bg-white/10 flex-shrink-0" />
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-white/70 font-mono text-xs uppercase tracking-wider">MEV</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setMevProtection(true)}
+                    className={`px-3 py-1 font-mono text-xs rounded-lg transition-colors ${
+                      mevProtection
+                        ? 'bg-[#b8d1b3] text-black'
+                        : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
+                    }`}
+                  >
+                    On
+                  </button>
+                  <button
+                    onClick={() => setMevProtection(false)}
+                    className={`px-3 py-1 font-mono text-xs rounded-lg transition-colors ${
+                      !mevProtection
+                        ? 'bg-[#b8d1b3] text-black'
+                        : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
+                    }`}
+                  >
+                    Off
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 md:p-8 space-y-2">
+          <div className="space-y-3 relative z-30 overflow-visible">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-mono text-white/70 uppercase tracking-wider font-bold">
+                You Pay
+              </label>
+              <span className="text-xs font-mono text-white/50">
+                Balance: {getChainBalance(fromChain)}
+              </span>
+            </div>
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative z-30">
+              <label className="text-xs font-mono text-white/50 uppercase tracking-wider block mb-2">
+                From Chain
+              </label>
               <button
-                onClick={() => open()}
-                className="bg-[#b8d1b3] text-black px-5 py-2 font-mono text-xs md:text-sm font-bold hover:bg-[#a8c1a3] transition-colors whitespace-nowrap rounded-lg"
+                ref={fromChainButtonRef}
+                data-dropdown-trigger
+                onClick={() => {
+                  setShowFromChainDropdown((prev) => !prev);
+                  setShowToChainDropdown(false);
+                  setShowFromTokenDropdown(false);
+                  setShowToTokenDropdown(false);
+                }}
+                className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors text-left"
               >
-                Connect Wallet
+                {fromChain}
+                <div className="absolute left-3 top-[38px] w-5 h-5">
+                  <Image src={getChainLogo(fromChain)} alt={fromChain} width={20} height={20} className="rounded-full" />
+                </div>
+                <div className="absolute right-3 top-[38px] text-white/50">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </button>
-            ) : (
+            </div>
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative z-30 overflow-visible">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <button
+                    ref={fromTokenButtonRef}
+                    data-dropdown-trigger
+                    onClick={() => {
+                      setShowFromTokenDropdown((prev) => !prev);
+                      setShowToTokenDropdown(false);
+                      setShowFromChainDropdown(false);
+                      setShowToChainDropdown(false);
+                    }}
+                    className="bg-black border border-white/20 text-white pl-12 pr-4 py-2.5 font-mono font-bold text-base md:text-lg focus:outline-none hover:border-[#b8d1b3]/50 transition-colors rounded-lg min-w-[140px] text-left"
+                  >
+                    {fromToken}
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6">
+                      <Image src={tokenLogos[fromToken]} alt={fromToken} width={24} height={24} className="rounded-full" />
+                    </div>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={fromAmount}
+                  onChange={(event) => setFromAmount(event.target.value)}
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent text-right text-2xl md:text-3xl font-bold focus:outline-none font-mono text-white"
+                />
+              </div>
+              <div className="mt-2 text-right">
+                <span className="text-xs font-mono text-white/50">
+                  {tokenOptions.find((token) => token.symbol === fromToken)?.name}
+                </span>
+                {tokenPrices[fromToken] && (
+                  <div className="mt-1">
+                    <span className="text-xs font-mono text-white/60 font-bold">
+                      ${tokenPrices[fromToken]?.usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span
+                      className={`text-xs font-mono ml-2 ${
+                        (tokenPrices[fromToken]?.change ?? 0) >= 0 ? 'text-[#b8d1b3]' : 'text-red-400'
+                      }`}
+                    >
+                      {(tokenPrices[fromToken]?.change ?? 0) >= 0 ? '▲' : '▼'}
+                      {Math.abs(tokenPrices[fromToken]?.change ?? 0).toFixed(2)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-center py-1 relative z-20">
+            <motion.button
+              whileHover={{ scale: 1.1, rotate: 180 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={handleSwapTokens}
+              className="bg-[#b8d1b3] p-2.5 border-4 border-white/10 shadow-lg hover:bg-[#a8c1a3] transition-all duration-300 rounded-xl text-black"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+              </svg>
+            </motion.button>
+          </div>
+
+          <div className="space-y-3 relative z-10 overflow-visible">
+            <div className="flex justify-between items-center">
+              <label className="text-xs font-mono text-white/70 uppercase tracking-wider font-bold">
+                You Receive
+              </label>
+              <span className="text-xs font-mono text-white/50">
+                Balance: {getChainBalance(toChain)}
+              </span>
+            </div>
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative z-30">
+              <label className="text-xs font-mono text-white/50 uppercase tracking-wider block mb-2">
+                To Chain
+              </label>
               <button
-                onClick={() => disconnect()}
-                className="bg-white/10 backdrop-blur-sm text-white px-5 py-2 font-mono text-xs md:text-sm font-bold hover:bg-white/20 transition-colors border border-white/20 whitespace-nowrap rounded-lg"
+                ref={toChainButtonRef}
+                data-dropdown-trigger
+                onClick={() => {
+                  setShowToChainDropdown((prev) => !prev);
+                  setShowFromChainDropdown(false);
+                  setShowFromTokenDropdown(false);
+                  setShowToTokenDropdown(false);
+                }}
+                className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors text-left"
               >
-                {address?.slice(0, 6)}...{address?.slice(-4)}
+                {toChain}
+                <div className="absolute left-3 top-[38px] w-5 h-5">
+                  <Image src={getChainLogo(toChain)} alt={toChain} width={20} height={20} className="rounded-full" />
+                </div>
+                <div className="absolute right-3 top-[38px] text-white/50">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
               </button>
+            </div>
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative z-20 overflow-visible">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <button
+                    ref={toTokenButtonRef}
+                    data-dropdown-trigger
+                    onClick={() => {
+                      setShowToTokenDropdown((prev) => !prev);
+                      setShowFromTokenDropdown(false);
+                      setShowFromChainDropdown(false);
+                      setShowToChainDropdown(false);
+                    }}
+                    className="bg-black border border-white/20 text-white pl-12 pr-4 py-2.5 font-mono font-bold text-base md:text-lg focus:outline-none hover:border-[#b8d1b3]/50 transition-colors rounded-lg min-w-[140px] text-left"
+                  >
+                    {toToken}
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6">
+                      <Image src={tokenLogos[toToken]} alt={toToken} width={24} height={24} className="rounded-full" />
+                    </div>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={toAmount}
+                  readOnly
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent text-right text-2xl md:text-3xl font-bold focus:outline-none font-mono text-white/80"
+                />
+              </div>
+              <div className="mt-2 text-right">
+                <span className="text-xs font-mono text-white/50">
+                  {tokenOptions.find((token) => token.symbol === toToken)?.name}
+                </span>
+                {tokenPrices[toToken] && (
+                  <div className="mt-1">
+                    <span className="text-xs font-mono text-white/60 font-bold">
+                      ${tokenPrices[toToken]?.usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    <span
+                      className={`text-xs font-mono ml-2 ${
+                        (tokenPrices[toToken]?.change ?? 0) >= 0 ? 'text-[#b8d1b3]' : 'text-red-400'
+                      }`}
+                    >
+                      {(tokenPrices[toToken]?.change ?? 0) >= 0 ? '▲' : '▼'}
+                      {Math.abs(tokenPrices[toToken]?.change ?? 0).toFixed(2)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-white/10">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={sendToDifferentWallet}
+                onChange={(event) => {
+                  setSendToDifferentWallet(event.target.checked);
+                  if (!event.target.checked) {
+                    setRecipientAddress('');
+                  }
+                }}
+                className="w-5 h-5 accent-[#b8d1b3] cursor-pointer"
+              />
+              <span className="text-sm font-mono text-white/70 group-hover:text-white transition-colors">
+                Send to a different wallet
+              </span>
+            </label>
+            {sendToDifferentWallet && (
+              <div className="mt-3 space-y-2">
+                <label className="text-xs font-mono text-white/60 uppercase tracking-wider font-bold block">
+                  Recipient Wallet Address
+                </label>
+                <input
+                  type="text"
+                  value={recipientAddress}
+                  onChange={(event) => setRecipientAddress(event.target.value)}
+                  placeholder="Enter wallet address (0x... or Solana address)"
+                  className="w-full bg-white/5 backdrop-blur-sm border border-white/20 text-white p-4 font-mono text-sm focus:outline-none focus:border-[#b8d1b3] hover:border-white/30 transition-colors rounded-lg placeholder:text-white/30"
+                />
+                <p className="text-xs font-mono text-white/40">
+                  ⚠️ Double-check the address. Transactions cannot be reversed.
+                </p>
+              </div>
             )}
           </div>
 
-          {/* Settings Row */}
-          <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-hide">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-white/70 font-mono text-xs uppercase tracking-wider">Slippage</span>
-              <div className="flex items-center gap-1.5">
-                {['0.1', '0.5', '1.0'].map((preset) => (
-                  <button
-                    key={preset}
-                    onClick={() => setSlippage(preset)}
-                    className={`px-2 py-1 font-mono text-xs rounded-lg transition-colors ${
-                      slippage === preset ? 'bg-[#b8d1b3] text-black' : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
-                    }`}
-                  >
-                    {preset}%
-                  </button>
-                ))}
+          {fromAmount && toAmount && !pricesLoading && (
+            <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 space-y-3 mt-4 rounded-xl">
+              <div className="flex justify-between items-center text-sm font-mono">
+                <span className="text-white/50 uppercase tracking-wider text-xs">Exchange Rate</span>
+                <span className="font-bold text-white">
+                  1 {fromToken} ≈ {(Number(toAmount) / Number(fromAmount)).toFixed(6)} {toToken}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm font-mono border-t border-white/10 pt-3">
+                <span className="text-white/50 uppercase tracking-wider text-xs">Network Fee</span>
+                <span className="font-bold text-white">
+                  {(Number(fromAmount) * 0.003).toFixed(6)} {fromToken}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm font-mono border-t border-white/10 pt-3">
+                <span className="text-white/50 uppercase tracking-wider text-xs">Max Slippage</span>
+                <span className="font-bold text-[#b8d1b3]">{slippage}%</span>
+              </div>
+              <div className="flex justify-between items-center text-sm font-mono border-t border-white/10 pt-3">
+                <span className="text-white/50 uppercase tracking-wider text-xs">Minimum Received</span>
+                <span className="font-bold text-[#b8d1b3]">
+                  {(Number(toAmount) * (1 - Number(slippage) / 100)).toFixed(6)} {toToken}
+                </span>
               </div>
             </div>
-            <div className="h-6 w-px bg-white/10 flex-shrink-0" />
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-white/70 font-mono text-xs uppercase tracking-wider">Gas</span>
-              <div className="flex items-center gap-1.5">
-                {(['slow', 'fast', 'instant'] as const).map((speed) => (
-                  <button
-                    key={speed}
-                    onClick={() => setGasSpeed(speed)}
-                    className={`px-2.5 py-1 font-mono text-xs rounded-lg transition-colors capitalize ${
-                      gasSpeed === speed ? 'bg-[#b8d1b3] text-black' : 'bg-black border border-white/20 text-white hover:border-[#b8d1b3]'
-                    }`}
-                  >
-                    {speed}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+          )}
 
-      <div className="p-6 md:p-8 space-y-2">
-        {/* From Section */}
-        <div className="space-y-3 relative z-30">
-          <div className="flex justify-between items-center">
-            <label className="text-xs font-mono text-white/70 uppercase tracking-wider font-bold">You Pay</label>
-            <span className="text-xs font-mono text-white/50">Balance: 0.0000</span>
-          </div>
-
-          {/* From Chain Selector */}
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative">
-            <label className="text-xs font-mono text-white/50 uppercase tracking-wider block mb-2">From Chain</label>
-            <button
-              onClick={() => { setShowFromChain(!showFromChain); setShowToChain(false); }}
-              className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors"
-            >
-              <span className="truncate">{fromChain}</span>
-              <div className="absolute left-3 top-[38px] w-5 h-5">
-                <Image src={getChainLogo(fromChain)} alt={fromChain} width={20} height={20} className="rounded-full" />
-              </div>
-              <div className="absolute right-3 top-[38px] text-white/50">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-              </div>
-            </button>
-            
-            <AnimatePresence>
-              {showFromChain && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 5 }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-black border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto scrollbar-hide"
-                >
-                  {chains.map((chain) => (
-                    <button
-                      key={chain.name}
-                      onClick={() => { setFromChain(chain.name); setShowFromChain(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                    >
-                      <Image src={chain.logo} alt={chain.name} width={24} height={24} className="rounded-full" />
-                      <span className="font-mono text-sm text-white">{chain.name}</span>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* From Token Input */}
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <button
-                  onClick={() => { setShowFromToken(!showFromToken); setShowToToken(false); }}
-                  className="bg-black border border-white/20 text-white pl-12 pr-8 py-2.5 font-mono font-bold text-base rounded-lg hover:border-[#b8d1b3]/50 transition-colors min-w-[140px] flex items-center"
-                >
-                  {fromToken}
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6">
-                    <Image src={getTokenLogo(fromToken)} alt={fromToken} width={24} height={24} className="rounded-full" />
-                  </div>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-                </button>
-
-                <AnimatePresence>
-                  {showFromToken && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 5 }}
-                      className="absolute top-full left-0 mt-2 w-64 bg-black border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto scrollbar-hide"
-                    >
-                      {tokens.map((token) => (
-                        <button
-                          key={token.symbol}
-                          onClick={() => { setFromToken(token.symbol); setShowFromToken(false); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                        >
-                          <Image src={token.logo} alt={token.symbol} width={24} height={24} className="rounded-full" />
-                          <div>
-                            <div className="font-mono text-sm font-bold text-white">{token.symbol}</div>
-                            <div className="font-mono text-xs text-white/50">{token.name}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <input
-                type="text"
-                value={fromAmount}
-                onChange={(e) => setFromAmount(e.target.value)}
-                placeholder="0.00"
-                className="flex-1 bg-transparent text-right text-2xl md:text-3xl font-bold focus:outline-none font-mono text-white placeholder:text-white/20"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Swap Divider */}
-        <div className="flex justify-center py-1 relative z-20">
           <motion.button
-            whileHover={{ scale: 1.1, rotate: 180 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => {
-              const tempChain = fromChain; setFromChain(toChain); setToChain(tempChain);
-              const tempToken = fromToken; setFromToken(toToken); setToToken(tempToken);
-            }}
-            className="bg-[#b8d1b3] p-2.5 border-4 border-white/10 shadow-lg hover:bg-[#a8c1a3] transition-all duration-300 rounded-xl text-black"
+            whileHover={{ scale: actionDisabled ? 1 : 1.02 }}
+            whileTap={{ scale: actionDisabled ? 1 : 0.98 }}
+            disabled={actionDisabled}
+            onClick={() => setShowComingSoon(true)}
+            className="w-full bg-[#b8d1b3] text-black py-4 md:py-5 font-mono text-base md:text-lg font-bold hover:bg-[#a8c1a3] hover:shadow-lg hover:shadow-[#b8d1b3]/20 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed uppercase tracking-wider mt-6 rounded-xl"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-            </svg>
+            {!displayAddress
+              ? 'Connect Wallet to Swap'
+              : !fromAmount || !toAmount
+              ? 'Enter Amount'
+              : sendToDifferentWallet && !recipientAddress
+              ? 'Enter Recipient Address'
+              : 'Execute Swap'}
           </motion.button>
         </div>
+      </motion.div>
 
-        {/* To Section */}
-        <div className="space-y-3 relative z-10">
-          <div className="flex justify-between items-center">
-            <label className="text-xs font-mono text-white/70 uppercase tracking-wider font-bold">You Receive</label>
-            <span className="text-xs font-mono text-white/50">Balance: 0.0000</span>
-          </div>
-
-          {/* To Chain Selector */}
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative">
-            <label className="text-xs font-mono text-white/50 uppercase tracking-wider block mb-2">To Chain</label>
+      {renderDropdownPortal(
+        showFromChainDropdown,
+        'fromChain',
+        <div className={`${dropdownClass}`}>
+          {chainOptions.map((chain) => (
             <button
-              onClick={() => { setShowToChain(!showToChain); setShowFromChain(false); }}
-              className="w-full bg-black border border-white/20 text-white pl-10 pr-8 py-2 font-mono text-sm flex items-center rounded-lg hover:border-white/30 transition-colors"
+              key={chain.name}
+              onClick={() => {
+                setFromChain(chain.name);
+                setShowFromChainDropdown(false);
+                setFromToken(chainToNativeToken[chain.name]);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
             >
-              <span className="truncate">{toChain}</span>
-              <div className="absolute left-3 top-[38px] w-5 h-5">
-                <Image src={getChainLogo(toChain)} alt={toChain} width={20} height={20} className="rounded-full" />
-              </div>
-              <div className="absolute right-3 top-[38px] text-white/50">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-              </div>
+              <Image src={chain.logo} alt={chain.name} width={28} height={28} className="rounded-full" />
+              <span className="font-mono text-sm text-white">{chain.name}</span>
             </button>
-            
-            <AnimatePresence>
-              {showToChain && (
-                <motion.div
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 5 }}
-                  className="absolute top-full left-0 right-0 mt-2 bg-black border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto scrollbar-hide"
-                >
-                  {chains.map((chain) => (
-                    <button
-                      key={chain.name}
-                      onClick={() => { setToChain(chain.name); setShowToChain(false); }}
-                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                    >
-                      <Image src={chain.logo} alt={chain.name} width={24} height={24} className="rounded-full" />
-                      <span className="font-mono text-sm text-white">{chain.name}</span>
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          ))}
+        </div>,
+      )}
 
-          {/* To Token Input */}
-          <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <button
-                  onClick={() => { setShowToToken(!showToToken); setShowFromToken(false); }}
-                  className="bg-black border border-white/20 text-white pl-12 pr-8 py-2.5 font-mono font-bold text-base rounded-lg hover:border-[#b8d1b3]/50 transition-colors min-w-[140px] flex items-center"
-                >
-                  {toToken}
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 w-6 h-6">
-                    <Image src={getTokenLogo(toToken)} alt={toToken} width={24} height={24} className="rounded-full" />
-                  </div>
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                  </div>
-                </button>
+      {renderDropdownPortal(
+        showToChainDropdown,
+        'toChain',
+        <div className={`${dropdownClass}`}>
+          {chainOptions.map((chain) => (
+            <button
+              key={chain.name}
+              onClick={() => {
+                setToChain(chain.name);
+                setShowToChainDropdown(false);
+                setToToken(chainToNativeToken[chain.name]);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
+            >
+              <Image src={chain.logo} alt={chain.name} width={28} height={28} className="rounded-full" />
+              <span className="font-mono text-sm text-white">{chain.name}</span>
+            </button>
+          ))}
+        </div>,
+      )}
 
-                <AnimatePresence>
-                  {showToToken && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 5 }}
-                      className="absolute top-full left-0 mt-2 w-64 bg-black border border-white/20 rounded-lg shadow-xl z-50 max-h-60 overflow-y-auto scrollbar-hide"
-                    >
-                      {tokens.map((token) => (
-                        <button
-                          key={token.symbol}
-                          onClick={() => { setToToken(token.symbol); setShowToToken(false); }}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                        >
-                          <Image src={token.logo} alt={token.symbol} width={24} height={24} className="rounded-full" />
-                          <div>
-                            <div className="font-mono text-sm font-bold text-white">{token.symbol}</div>
-                            <div className="font-mono text-xs text-white/50">{token.name}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+      {renderDropdownPortal(
+        showFromTokenDropdown,
+        'fromToken',
+        <div className={`${dropdownClass} max-h-64 overflow-y-auto`}>
+          {tokensWithBalances.map((token) => (
+            <button
+              key={`${token.symbol}-from`}
+              onClick={() => {
+                setFromToken(token.symbol);
+                setShowFromTokenDropdown(false);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
+            >
+              <Image src={tokenLogos[token.symbol]} alt={token.symbol} width={32} height={32} className="rounded-full" />
+              <div className="flex-1">
+                <div className="font-mono text-sm font-bold text-white">{token.symbol}</div>
+                <div className="font-mono text-xs text-white/50">{token.name}</div>
               </div>
+              <div className="font-mono text-xs text-white/60">{token.balance}</div>
+            </button>
+          ))}
+        </div>,
+      )}
 
-              <input
-                type="text"
-                value={fromAmount ? (parseFloat(fromAmount) * 0.99).toFixed(4) : ''}
-                readOnly
-                placeholder="0.00"
-                className="flex-1 bg-transparent text-right text-2xl md:text-3xl font-bold focus:outline-none font-mono text-white placeholder:text-white/20"
-              />
-            </div>
-          </div>
+      {renderDropdownPortal(
+        showToTokenDropdown,
+        'toToken',
+        <div className={`${dropdownClass} max-h-64 overflow-y-auto`}>
+          {tokensWithBalances.map((token) => (
+            <button
+              key={`${token.symbol}-to`}
+              onClick={() => {
+                setToToken(token.symbol);
+                setShowToTokenDropdown(false);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
+            >
+              <Image src={tokenLogos[token.symbol]} alt={token.symbol} width={32} height={32} className="rounded-full" />
+              <div className="flex-1">
+                <div className="font-mono text-sm font-bold text-white">{token.symbol}</div>
+                <div className="font-mono text-xs text-white/50">{token.name}</div>
+              </div>
+              <div className="font-mono text-xs text-white/60">{token.balance}</div>
+            </button>
+          ))}
+        </div>,
+      )}
+
+      {showComingSoon && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4" style={{ backdropFilter: 'blur(8px)', backgroundColor: 'rgba(0, 0, 0, 0.7)' }}>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative max-w-md w-full rounded-3xl p-8 border border-white/20 bg-black/70 text-center space-y-4"
+          >
+            <button
+              onClick={() => setShowComingSoon(false)}
+              className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <Image src="/logo3.svg" alt="NoLimit" width={160} height={160} className="mx-auto" />
+            <h3 className="text-2xl font-mono text-white uppercase tracking-wider">Coming Soon</h3>
+            <p className="text-sm font-mono text-white/70">
+              Execution is in final QA. Swaps will be enabled once the Jupiter + 1inch routing meets our privacy guarantees.
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setShowComingSoon(false)}
+              className="w-full bg-[#b8d1b3] text-black py-3 font-mono text-sm font-bold rounded-xl"
+            >
+              Got it
+            </motion.button>
+          </motion.div>
         </div>
-
-        {/* Action Button */}
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className="w-full bg-[#b8d1b3] text-black py-4 md:py-5 font-mono text-base md:text-lg font-bold hover:bg-[#a8c1a3] hover:shadow-lg hover:shadow-[#b8d1b3]/20 transition-all duration-300 uppercase tracking-wider mt-6 rounded-xl"
-        >
-          {isConnected ? "Execute Swap" : "Connect Wallet"}
-        </motion.button>
-      </div>
-    </motion.div>
+      )}
+    </>
   );
 }
+
+
