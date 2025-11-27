@@ -1,8 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { Card } from '@/components/ui/Card';
-import HeroAurora from '@/components/HeroAurora';
+
+// Dynamically import Three.js component to avoid SSR issues
+const HeroAurora = dynamic(() => import('@/components/HeroAurora'), {
+  ssr: false,
+  loading: () => <div className="absolute inset-0 bg-white" />,
+});
 
 export default function HomePage() {
   return (

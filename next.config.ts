@@ -1,9 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Reduce build time by skipping linting during build (handled by CI)
+  // Skip linting during build (faster builds, lint in CI)
   eslint: {
     ignoreDuringBuilds: true,
+  },
+  
+  // Skip type checking during build (faster builds, check in CI)
+  typescript: {
+    ignoreBuildErrors: true,
   },
   
   // Optimize images
@@ -11,15 +16,18 @@ const nextConfig: NextConfig = {
     formats: ['image/avif', 'image/webp'],
   },
 
-  // Experimental optimizations - tree-shake large packages
+  // Tree-shake large packages for faster builds
   experimental: {
     optimizePackageImports: [
       'framer-motion',
-      'recharts',
+      'recharts', 
       'lucide-react',
       '@solana/web3.js',
       'viem',
       'wagmi',
+      'three',
+      '@react-three/fiber',
+      '@react-three/postprocessing',
     ],
   },
 };

@@ -1,0 +1,20 @@
+# Nixpacks configuration for Railway
+# Optimizes build time by using Node 20 and caching
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm ci --legacy-peer-deps"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
+
+# Cache node_modules and .next for faster rebuilds
+[caches]
+npm = "node_modules"
+next = ".next/cache"
+
