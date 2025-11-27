@@ -141,3 +141,4 @@ nolimit-app/
 - `nolimit-app/x402-server/prisma/schema.prisma` - Database schema
 - `nolimit-app/RAILWAY.md` - Detailed deployment guide
 
+

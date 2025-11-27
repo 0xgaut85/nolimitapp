@@ -85,3 +85,4 @@ See `RAILWAY.md` for detailed Railway deployment instructions.
 - **Payment errors**: Verify CDP API keys and merchant address
 - **Build errors**: Run `npm install` in both root and `x402-server` directories
 
+

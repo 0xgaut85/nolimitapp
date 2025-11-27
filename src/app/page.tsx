@@ -34,14 +34,14 @@ export default function HomePage() {
           description="Real-time analytics and protocol metrics visualization."
           href="/dashboard"
           delay={0.1}
-        />
+            />
         <FeatureCard
           title="ATOMIC_SWAP"
           description="High-frequency trading router with privacy preservation."
           href="/swap"
           delay={0.2}
         />
-      </div>
+        </div>
     </div>
   );
 }

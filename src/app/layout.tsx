@@ -18,7 +18,7 @@ export default function RootLayout({
       <body className="dark">
         <Providers>
           <AppLayout>
-            {children}
+        {children}
           </AppLayout>
         </Providers>
       </body>
