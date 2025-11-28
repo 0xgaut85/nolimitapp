@@ -564,9 +564,15 @@ app.get('/api/stats/detailed', async (req, res) => {
     ]);
 
     // Calculate revenue
-    const totalRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
-    const agentRevenue = payments.filter(p => p.service === 'agent').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
-    const swapRevenue = payments.filter(p => p.service === 'swap').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    // If payments exist, use them; otherwise calculate from usage counts with fee rates
+    const paymentRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const agentPaymentRevenue = payments.filter(p => p.service === 'agent').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const swapPaymentRevenue = payments.filter(p => p.service === 'swap').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    
+    // Use payment data if available, otherwise calculate from usage (each agent msg = $0.05, each swap = $0.10)
+    const agentRevenue = agentPaymentRevenue > 0 ? agentPaymentRevenue : agentMessages * 0.05;
+    const swapRevenue = swapPaymentRevenue > 0 ? swapPaymentRevenue : swapCount * 0.10;
+    const totalRevenue = paymentRevenue > 0 ? paymentRevenue : (agentRevenue + swapRevenue);
 
     // Revenue by chain
     const baseRevenue = payments.filter(p => p.chain === 'base').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);

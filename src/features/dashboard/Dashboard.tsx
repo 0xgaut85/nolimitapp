@@ -174,13 +174,19 @@ export function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="p-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-white/60 font-mono text-xs">BASE_REVENUE</span>
+                  <div className="flex items-center gap-2">
+                    <img src="/logos/base.jpg" alt="Base" className="w-5 h-5 rounded-full" />
+                    <span className="text-white/60 font-mono text-xs">BASE_REVENUE</span>
+                  </div>
                   <span className="text-accent-glow font-mono font-bold">${stats.overview.baseRevenue}</span>
                 </div>
               </Card>
               <Card className="p-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-white/60 font-mono text-xs">SOLANA_REVENUE</span>
+                  <div className="flex items-center gap-2">
+                    <img src="/logos/solana.jpg" alt="Solana" className="w-5 h-5 rounded-full" />
+                    <span className="text-white/60 font-mono text-xs">SOLANA_REVENUE</span>
+                  </div>
                   <span className="text-accent-glow font-mono font-bold">${stats.overview.solanaRevenue}</span>
                 </div>
               </Card>
