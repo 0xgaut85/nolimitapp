@@ -1,9 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useAccount, useWalletClient } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { config } from '@/config';
-import { x402Fetch } from '@/lib/x402';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 
@@ -16,12 +15,10 @@ type Message = {
 
 export function AgentChat() {
   const { address, isConnected } = useAccount();
-  const { data: walletClient } = useWalletClient();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [paymentPending, setPaymentPending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -62,7 +59,6 @@ export function AgentChat() {
     setInput('');
     setIsLoading(true);
     setError(null);
-    setPaymentPending(false);
 
     try {
       // Build conversation history for context
@@ -71,27 +67,18 @@ export function AgentChat() {
         content: m.content
       }));
 
-      setPaymentPending(true);
-
-      // Use x402Fetch which handles 402 payment flow
-      const response = await x402Fetch(
-        `${config.x402ServerUrl}/api/agent/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: messageContent,
-            userAddress: address,
-            conversationHistory,
-          }),
+      // Simple fetch - x402-express handles payment on server
+      const response = await fetch(`${config.x402ServerUrl}/api/agent/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        walletClient || null,
-        address
-      );
-
-      setPaymentPending(false);
+        body: JSON.stringify({
+          message: messageContent,
+          userAddress: address,
+          conversationHistory,
+        }),
+      });
 
       const data = await response.json();
 
@@ -109,26 +96,8 @@ export function AgentChat() {
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
       console.error('Agent error:', err);
-      setPaymentPending(false);
-      
       const errorContent = err instanceof Error ? err.message : 'Failed to get response';
-      
-      // Show specific error messages
-      if (errorContent.includes('User rejected') || errorContent.includes('denied')) {
-        setError('Payment signature was rejected. Please approve the payment to continue.');
-      } else if (errorContent.includes('Wallet not connected')) {
-        setError('Please connect your wallet to make payments.');
-      } else if (errorContent.includes('402') || errorContent.includes('payment')) {
-        setError(`Payment required: ${config.fees.agent} USDC per message`);
-      } else {
-        const errorMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `Error: ${errorContent}`,
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, errorMessage]);
-      }
+      setError(errorContent);
     } finally {
       setIsLoading(false);
     }
@@ -152,18 +121,6 @@ export function AgentChat() {
         >
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 ml-4">✕</button>
-        </motion.div>
-      )}
-
-      {/* Payment Pending Banner */}
-      {paymentPending && (
-        <motion.div 
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mx-4 mb-4 p-4 bg-[#7fff00]/10 border border-[#7fff00]/30 rounded-lg text-[#7fff00] text-sm font-mono flex items-center gap-3"
-        >
-          <div className="w-4 h-4 border-2 border-[#7fff00] border-t-transparent rounded-full animate-spin" />
-          <span>Please sign the payment request in your wallet ({config.fees.agent} USDC)</span>
         </motion.div>
       )}
 
@@ -256,7 +213,7 @@ export function AgentChat() {
             </AnimatePresence>
             
             {/* Loading indicator */}
-            {isLoading && !paymentPending && (
+            {isLoading && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -282,7 +239,7 @@ export function AgentChat() {
         )}
       </div>
 
-      {/* Input Area - ChatGPT style */}
+      {/* Input Area */}
       <div className="border-t border-white/10 p-4">
         <div className="max-w-3xl mx-auto">
           <div className="relative bg-white/5 border border-white/20 rounded-2xl overflow-hidden focus-within:border-[#7fff00]/50 transition-colors">

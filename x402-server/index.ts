@@ -37,30 +37,21 @@ const app = express();
 // Trust proxy for Railway
 app.set('trust proxy', true);
 
-// CORS configuration - Allow all origins for API access
+// CORS - Must be BEFORE any other middleware
+// Handle preflight requests explicitly
+app.options('*', cors());
+
 app.use(cors({
-  origin: true, // Allow all origins
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'X-Payment',
-    'X-Payment-Response',
-    'X-Payment-Required',
-    'X-Payment-Quote',
-    'WWW-Authenticate'
-  ],
+  allowedHeaders: '*',
   exposedHeaders: [
     'X-Payment',
-    'X-Payment-Response',
+    'X-Payment-Response', 
     'X-Payment-Required',
-    'X-Payment-Quote',
     'WWW-Authenticate'
   ],
-  credentials: true,
-  maxAge: 86400,
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  credentials: false,
 }));
 
 app.use(express.json());
