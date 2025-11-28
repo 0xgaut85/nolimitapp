@@ -2,12 +2,9 @@
 
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiProvider } from 'wagmi';
-import { base, mainnet, arbitrum, optimism, polygon } from '@reown/appkit/networks';
+import { base, mainnet, arbitrum, optimism, polygon, solana } from '@reown/appkit/networks';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { SolanaAdapter } from '@reown/appkit-adapter-solana/react';
-import { solana } from '@reown/appkit/networks';
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { ReactNode } from 'react';
 
 // Create query client
@@ -16,29 +13,19 @@ const queryClient = new QueryClient();
 // Project ID from Reown Cloud
 const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID || '';
 
-// Solana wallet adapters - only use ones without native dependencies
-const solanaWallets = [
-  new PhantomWalletAdapter(),
-  new SolflareWalletAdapter(),
-];
-
-// Create Solana adapter
-const solanaAdapter = new SolanaAdapter({
-  wallets: solanaWallets,
-});
-
 // Create Wagmi adapter for EVM chains
 const wagmiAdapter = new WagmiAdapter({
   networks: [base, mainnet, arbitrum, optimism, polygon],
   projectId,
 });
 
-// All supported networks
+// All supported networks including Solana
 const networks = [base, solana, mainnet, arbitrum, optimism, polygon];
 
 // Create App Kit with multi-chain support
+// Solana is supported natively by Reown without needing @solana/wallet-adapter-wallets
 createAppKit({
-  adapters: [wagmiAdapter, solanaAdapter],
+  adapters: [wagmiAdapter],
   networks,
   defaultNetwork: base,
   projectId,
