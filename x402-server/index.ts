@@ -173,7 +173,7 @@ app.use(paymentMiddleware(
       price: '$0.10',
       network: 'base',
       config: {
-        description: 'Privacy-focused decentralized exchange aggregator for optimal swap execution',
+        description: 'Privacy-focused decentralized exchange with optimal swap execution',
         mimeType: 'application/json',
         discoverable: true,
         resource: `${serverPublicUrl}/noLimitSwap`,
