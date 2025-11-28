@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useAccount } from 'wagmi';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useAccount, useChainId, useWalletClient } from 'wagmi';
 import { config } from '@/config';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { wrapFetchWithPayment } from 'x402-fetch';
+import { base } from 'wagmi/chains';
 
 type Message = {
   id: string;
@@ -15,12 +17,28 @@ type Message = {
 
 export function AgentChat() {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { data: walletClient } = useWalletClient();
+
+  const fetchWithPayment = useMemo(() => {
+    if (!walletClient) return null;
+    try {
+      return wrapFetchWithPayment(
+        fetch,
+        walletClient as any,
+        BigInt(1 * 10 ** 6), // max 1 USDC
+      );
+    } catch (err) {
+      console.error('[x402-fetch] Failed to initialize:', err);
+      return null;
+    }
+  }, [walletClient]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,6 +63,14 @@ export function AgentChat() {
       setError('Please connect your wallet first');
       return;
     }
+    if (!fetchWithPayment) {
+      setError('Payment client not available. Ensure your wallet is connected.');
+      return;
+    }
+    if (chainId !== base.id) {
+      setError('Switch to Base network to continue.');
+      return;
+    }
 
     const messageContent = input.trim();
     
@@ -67,8 +93,7 @@ export function AgentChat() {
         content: m.content
       }));
 
-      // Simple fetch - x402-express handles payment on server
-      const response = await fetch(`${config.x402ServerUrl}/api/agent/chat`, {
+      const response = await fetchWithPayment('/api/agent/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
