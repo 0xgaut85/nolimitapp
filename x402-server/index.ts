@@ -34,6 +34,8 @@ if (!facilitatorUrl || !payTo) {
 
 const app = express();
 const serverPublicUrl = process.env.X402_PUBLIC_URL || process.env.X402_SERVER_URL || 'https://x402.nolimit.foundation';
+const baseMarketingUrl = (process.env.NEXT_PUBLIC_BASE_URL || 'https://nolimit.foundation').replace(/\/+$/, '');
+const logoUrl = `${baseMarketingUrl}/illustration/logox.jpg`;
 
 // Trust proxy for Railway
 app.set('trust proxy', true);
@@ -43,8 +45,69 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'NoLimit x402 Server', timestamp: new Date().toISOString() });
 });
 
+app.get('/favicon.ico', async (_req, res) => {
+  try {
+    const response = await fetch(logoUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch favicon: ${response.status}`);
+    }
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const buffer = Buffer.from(await response.arrayBuffer());
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(buffer);
+  } catch (error) {
+    console.error('[x402-server] Error serving favicon:', error);
+    res.status(500).end();
+  }
+});
+
+// Friendly landing page so x402scan and browsers get metadata + branding
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'NoLimit x402 Server', llm: 'Venice AI' });
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(200).send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>noLimit — x402 Server</title>
+    <meta name="description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
+    <link rel="icon" type="image/jpeg" href="${logoUrl}" />
+    <link rel="shortcut icon" type="image/jpeg" href="${logoUrl}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="noLimit — x402 Server" />
+    <meta property="og:description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
+    <meta property="og:url" content="${serverPublicUrl}/" />
+    <meta property="og:image" content="${logoUrl}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="noLimit — x402 Server" />
+    <meta name="twitter:description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
+    <meta name="twitter:image" content="${logoUrl}" />
+    <style>
+      body { font-family: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; padding: 2.5rem; margin: 0; min-height: 100vh; background: #020202; color: #fafafa; display: flex; align-items: center; justify-content: center; }
+      .card { width: 100%; max-width: 720px; border: 1px solid rgba(250,250,250,0.1); border-radius: 20px; padding: 32px; background: rgba(0,0,0,0.65); backdrop-filter: blur(12px); box-shadow: 0 25px 80px rgba(0,0,0,0.45); }
+      .logo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; margin-bottom: 18px; border: 1px solid rgba(250,250,250,0.2); }
+      h1 { margin: 0 0 12px 0; font-size: 32px; }
+      p { margin: 0 0 24px 0; color: rgba(250,250,250,0.7); }
+      .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+      .pill { padding: 10px 16px; border-radius: 999px; border: 1px solid rgba(250,250,250,0.2); color: rgba(250,250,250,0.85); text-decoration: none; transition: border-color 0.2s ease; font-size: 14px; }
+      .pill:hover { border-color: rgba(250,250,250,0.45); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img class="logo" src="${logoUrl}" alt="noLimit" onerror="this.style.display='none'" />
+      <h1>noLimit — x402 Server</h1>
+      <p>A privacy-first AI ecosystem, redefining what AI can and should be.</p>
+      <div class="grid">
+        <a class="pill" href="/health">Health</a>
+        <a class="pill" href="/noLimitLLM">noLimit LLM</a>
+        <a class="pill" href="/noLimitSwap">noLimit Swap</a>
+      </div>
+      <p style="margin-top:24px;font-size:13px;color:rgba(250,250,250,0.45);">Server URL: ${serverPublicUrl}</p>
+    </div>
+  </body>
+</html>`);
 });
 
 // CORS - Must be BEFORE any other middleware
