@@ -1,34 +1,54 @@
 'use client';
 
-import { useAccount, useDisconnect } from 'wagmi';
-import { useAppKit, useAppKitNetwork, useAppKitAccount } from '@reown/appkit/react';
+import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
+import { useAppKit, useAppKitNetwork, useAppKitAccount, useDisconnect as useAppKitDisconnect } from '@reown/appkit/react';
 import { Button } from '@/components/ui/Button';
 import Image from 'next/image';
 
 export function WalletButton() {
   const { address, isConnected } = useAccount();
   const { open } = useAppKit();
-  const { disconnect } = useDisconnect();
+  const { disconnect: disconnectWagmi } = useWagmiDisconnect();
+  const { disconnect: disconnectAppKit } = useAppKitDisconnect();
   const { caipNetwork } = useAppKitNetwork();
   const appKitAccount = useAppKitAccount();
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
 
   // Get the connected address (works for both EVM and Solana)
-  const connectedAddress = appKitAccount?.address || address;
-  const isWalletConnected = appKitAccount?.isConnected || isConnected;
+  const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
+  const connectedAddress = (isSolanaActive ? solanaAccount.address : appKitAccount.address) || address;
+  const isWalletConnected = Boolean(isSolanaActive ? solanaAccount.isConnected : (appKitAccount.isConnected || isConnected));
 
   // Get network info
-  const networkName = caipNetwork?.name || 'Unknown';
-  const isSolana = caipNetwork?.id?.toString().includes('solana');
+  const networkName = caipNetwork?.name || (isSolanaActive ? 'Solana' : 'Base');
 
   // Get chain logo
   const getChainLogo = () => {
-    if (isSolana) return '/logos/solana.jpg';
+    if (isSolanaActive) return '/logos/solana.jpg';
     if (networkName.toLowerCase().includes('base')) return '/logos/base.jpg';
     if (networkName.toLowerCase().includes('ethereum') || networkName.toLowerCase().includes('mainnet')) return '/logos/ethereum.jpg';
     if (networkName.toLowerCase().includes('arbitrum')) return '/logos/arbitrum.jpg';
     if (networkName.toLowerCase().includes('optimism')) return '/logos/optimism.jpg';
     if (networkName.toLowerCase().includes('polygon')) return '/logos/ethereum.jpg'; // Use ethereum for polygon
     return '/logos/base.jpg';
+  };
+
+  const handleDisconnect = async () => {
+    try {
+      await disconnectAppKit({ namespace: 'solana' });
+    } catch {
+      // ignore
+    }
+    try {
+      await disconnectAppKit({ namespace: 'eip155' });
+    } catch {
+      // ignore
+    }
+    try {
+      await disconnectWagmi();
+    } catch {
+      // ignore
+    }
   };
 
   if (isWalletConnected && connectedAddress) {
@@ -68,7 +88,7 @@ export function WalletButton() {
         {/* Disconnect Button */}
         <Button
           variant="danger"
-          onClick={() => disconnect()}
+          onClick={handleDisconnect}
           className="px-3 py-2 text-xs"
         >
           ✕

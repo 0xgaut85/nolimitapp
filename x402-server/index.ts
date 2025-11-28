@@ -148,41 +148,65 @@ if (cdpApiKeyId && cdpApiKeySecret) {
   };
 }
 
-// Payment middleware configuration
-// x402scan registration metadata:
-// - Name: noLimit
-// - Description: A privacy-first AI ecosystem, redefining what AI can and should be.
-// - Logo: https://nolimit.foundation/illustration/logox.jpg
-app.use(paymentMiddleware(
-  payTo,
-  {
-    'POST /noLimitLLM': {
-      price: '$0.05',
-      network: 'base',
-      config: {
-        description: 'Uncensored AI conversations with complete privacy and zero data retention',
-        mimeType: 'application/json',
-        discoverable: true,
-        resource: `${serverPublicUrl}/noLimitLLM`,
-        name: 'noLimit LLM',
-        logo: 'https://nolimit.foundation/illustration/logox.jpg',
-        category: 'AI',
-      },
-    },
-    'POST /noLimitSwap': {
-      price: '$0.10',
-      network: 'base',
-      config: {
-        description: 'Privacy-focused decentralized exchange with optimal swap execution',
-        mimeType: 'application/json',
-        discoverable: true,
-        resource: `${serverPublicUrl}/noLimitSwap`,
-        name: 'noLimit Swap',
-        logo: 'https://nolimit.foundation/illustration/logox.jpg',
-        category: 'Trading',
-      },
+const paymentResources: Parameters<typeof paymentMiddleware>[1] = {
+  'POST /noLimitLLM': {
+    price: '$0.05',
+    network: 'base',
+    config: {
+      description: 'Uncensored AI conversations with complete privacy and zero data retention',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitLLM`,
+      name: 'noLimit LLM',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'AI',
     },
   },
+  'POST /noLimitLLM/solana': {
+    price: '$0.05',
+    network: 'solana',
+    config: {
+      description: 'Uncensored AI conversations with complete privacy and zero data retention',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitLLM/solana`,
+      name: 'noLimit LLM (Solana)',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'AI',
+    },
+  },
+  'POST /noLimitSwap': {
+    price: '$0.10',
+    network: 'base',
+    config: {
+      description: 'Privacy-focused decentralized exchange with optimal swap execution',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitSwap`,
+      name: 'noLimit Swap',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Trading',
+    },
+  },
+  'POST /noLimitSwap/solana': {
+    price: '$0.10',
+    network: 'solana',
+    config: {
+      description: 'Privacy-focused decentralized exchange with optimal swap execution',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitSwap/solana`,
+      name: 'noLimit Swap (Solana)',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Trading',
+    },
+  },
+};
+
+// Payment middleware configuration (x402scan metadata baked into config above)
+app.use(paymentMiddleware(
+  payTo,
+  paymentResources,
   facilitatorConfig,
 ));
 
@@ -373,21 +397,23 @@ async function get1inchSwapTransaction(
 
 // --- ENDPOINTS ---
 
-// Route: noLimit LLM (powered by Venice AI - uncensored)
-app.post('/noLimitLLM', async (req, res) => {
+async function handleAgentRequest(
+  req: express.Request,
+  res: express.Response,
+  chain: 'base' | 'solana',
+) {
   if (res.headersSent) return;
-  
+
   try {
     const { message, userAddress, conversationHistory } = req.body;
-    
+
     if (!message || !userAddress) {
       return res.status(400).json({ error: 'Missing message or userAddress' });
     }
 
     const user = await getOrCreateUser(userAddress);
-    await savePayment(user.id, 'noLimitLLM', '0.05', 'base');
-    
-    // Build messages array with system prompt and conversation history
+    await savePayment(user.id, 'noLimitLLM', '0.05', chain);
+
     const messages: VeniceMessage[] = [
       {
         role: 'system',
@@ -395,9 +421,8 @@ app.post('/noLimitLLM', async (req, res) => {
       }
     ];
 
-    // Add conversation history if provided
     if (conversationHistory && Array.isArray(conversationHistory)) {
-      for (const msg of conversationHistory.slice(-10)) { // Keep last 10 messages for context
+      for (const msg of conversationHistory.slice(-10)) {
         if (msg.role === 'user' || msg.role === 'assistant') {
           messages.push({
             role: msg.role,
@@ -407,14 +432,13 @@ app.post('/noLimitLLM', async (req, res) => {
       }
     }
 
-    // Add current message
     messages.push({
       role: 'user',
       content: message
     });
 
     const assistantMessage = await callVeniceAI(messages);
-    
+
     await prisma.agentUsage.create({
       data: {
         userId: user.id,
@@ -423,29 +447,38 @@ app.post('/noLimitLLM', async (req, res) => {
         fee: '0.05',
       },
     });
-    
+
     res.json({ response: assistantMessage });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unable to complete agent request';
     console.error('[Agent] Error:', error);
     res.status(500).json({ error: errorMessage });
   }
-});
+}
 
-// Route: noLimit Swap Transaction
-app.post('/noLimitSwap', async (req, res) => {
+// Route: noLimit LLM (powered by Venice AI - uncensored)
+app.post('/noLimitLLM', (req, res) => handleAgentRequest(req, res, 'base'));
+app.post('/noLimitLLM/solana', (req, res) => handleAgentRequest(req, res, 'solana'));
+
+async function handleSwapRequest(
+  req: express.Request,
+  res: express.Response,
+  chainOverride?: 'base' | 'solana',
+) {
   if (res.headersSent) return;
-  
+
   try {
     const { chain, fromToken, toToken, amount, userAddress } = req.body;
-    
-    if (!chain || !fromToken || !toToken || !amount || !userAddress) {
+
+    if (!fromToken || !toToken || !amount || !userAddress) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    
+
+    const normalizedChain = (chainOverride ?? chain ?? 'base').toLowerCase() === 'solana' ? 'solana' : 'base';
+
     const user = await getOrCreateUser(userAddress);
-    await savePayment(user.id, 'noLimitSwap', '0.10', chain);
-    
+    await savePayment(user.id, 'noLimitSwap', '0.10', normalizedChain);
+
     let swapResult: SwapResult;
 
     const tokens: Record<'base' | 'solana', Record<string, string>> = {
@@ -460,34 +493,32 @@ app.post('/noLimitSwap', async (req, res) => {
       },
     };
 
-    if (chain === 'solana') {
+    if (normalizedChain === 'solana') {
       const inputMint = tokens.solana[fromToken] || fromToken;
       const outputMint = tokens.solana[toToken] || toToken;
       swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
-    } else if (chain === 'base') {
+    } else {
       const srcToken = tokens.base[fromToken] || fromToken;
       const dstToken = tokens.base[toToken] || toToken;
       swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
-    } else {
-      throw new Error('Unsupported chain');
     }
-    
-    // Save swap usage
+
     await prisma.swapUsage.create({
       data: {
         userId: user.id,
-        chain,
+        chain: normalizedChain,
         fromToken,
         toToken,
         fromAmount: amount,
-        toAmount: swapResult.quote?.toAmount || '0', 
+        toAmount: swapResult.quote?.toAmount || '0',
         fee: '0.10',
-        txHash: '', // Will be filled later if we track on-chain
+        txHash: '',
       },
     });
-    
+
     res.json({
       success: true,
+      chain: normalizedChain,
       ...swapResult,
     });
   } catch (error) {
@@ -495,7 +526,11 @@ app.post('/noLimitSwap', async (req, res) => {
     console.error('[Swap] Error:', error);
     res.status(500).json({ error: errorMessage });
   }
-});
+}
+
+// Route: noLimit Swap Transaction
+app.post('/noLimitSwap', (req, res) => handleSwapRequest(req, res, 'base'));
+app.post('/noLimitSwap/solana', (req, res) => handleSwapRequest(req, res, 'solana'));
 
 // Route: Stats (public, no payment required)
 app.get('/api/stats', async (req, res) => {

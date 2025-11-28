@@ -7,6 +7,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { base } from 'wagmi/chains';
+import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
+import type { TransactionSigner } from '@solana/kit';
+import type { Signer, X402Config } from 'x402/types';
 
 type Message = {
   id: string;
@@ -25,20 +28,51 @@ export function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { data: walletClient } = useWalletClient();
+  const evmAccount = useAppKitAccount();
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  const { caipNetwork } = useAppKitNetwork();
+  const { walletProvider: solanaSigner } = useAppKitProvider<TransactionSigner>('solana');
+
+  const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
+  const connectedAddress = (isSolanaActive ? solanaAccount.address : evmAccount.address) || address;
+  const isWalletConnected = Boolean(connectedAddress);
+
+  const x402Config = useMemo<X402Config | undefined>(() => {
+    if (isSolanaActive) {
+      return {
+        svmConfig: {
+          rpcUrl: config.networks.solana.rpcUrl,
+        },
+      };
+    }
+    return undefined;
+  }, [isSolanaActive]);
+
+  const signer = useMemo<Signer | null>(() => {
+    if (isSolanaActive && solanaSigner) {
+      return solanaSigner as unknown as Signer;
+    }
+    if (!isSolanaActive && walletClient) {
+      return walletClient as unknown as Signer;
+    }
+    return null;
+  }, [isSolanaActive, solanaSigner, walletClient]);
 
   const fetchWithPayment = useMemo(() => {
-    if (!walletClient) return null;
+    if (!signer) return null;
     try {
       return wrapFetchWithPayment(
         fetch,
-        walletClient as any,
+        signer as any,
         BigInt(1 * 10 ** 6), // max 1 USDC
+        undefined,
+        x402Config,
       );
     } catch (err) {
       console.error('[x402-fetch] Failed to initialize:', err);
       return null;
     }
-  }, [walletClient]);
+  }, [signer, x402Config]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,7 +93,7 @@ export function AgentChat() {
   const handleSendMessage = async () => {
     if (!input.trim() || isLoading) return;
     
-    if (!isConnected || !address) {
+    if (!isWalletConnected || !connectedAddress) {
       setError('Please connect your wallet first');
       return;
     }
@@ -67,7 +101,7 @@ export function AgentChat() {
       setError('Payment client not available. Ensure your wallet is connected.');
       return;
     }
-    if (chainId !== base.id) {
+    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
       setError('Switch to Base network to continue.');
       return;
     }
@@ -93,14 +127,15 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const response = await fetchWithPayment('/api/noLimitLLM', {
+      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
+      const response = await fetchWithPayment(apiPath, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message: messageContent,
-          userAddress: address,
+          userAddress: connectedAddress,
           conversationHistory,
         }),
       });
@@ -273,14 +308,14 @@ export function AgentChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isConnected ? "Message noLimit LLM..." : "Connect wallet to chat..."}
-              disabled={!isConnected || isLoading}
+              placeholder={isWalletConnected ? "Message noLimit LLM..." : "Connect wallet to chat..."}
+              disabled={!isWalletConnected || isLoading}
               rows={1}
               className="w-full bg-transparent text-white placeholder-white/40 px-4 py-4 pr-14 resize-none focus:outline-none disabled:opacity-50 max-h-[200px]"
             />
             <button
               onClick={handleSendMessage}
-              disabled={!input.trim() || !isConnected || isLoading}
+              disabled={!input.trim() || !isWalletConnected || isLoading}
               className="absolute right-2 bottom-2 p-2 bg-[#7fff00] text-black rounded-lg hover:bg-[#6ee600] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
