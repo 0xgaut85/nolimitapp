@@ -38,6 +38,15 @@ const serverPublicUrl = process.env.X402_PUBLIC_URL || process.env.X402_SERVER_U
 // Trust proxy for Railway
 app.set('trust proxy', true);
 
+// Health check - MUST be before any middleware to ensure it always responds
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'NoLimit x402 Server', timestamp: new Date().toISOString() });
+});
+
+app.get('/', (req, res) => {
+  res.json({ status: 'ok', service: 'NoLimit x402 Server', llm: 'Venice AI' });
+});
+
 // CORS - Must be BEFORE any other middleware
 // Custom middleware to handle all requests including OPTIONS preflight
 app.use((req, res, next) => {
@@ -645,11 +654,6 @@ app.get('/api/stats/user/:address', async (req, res) => {
     console.error('[UserStats] Error:', error);
     res.status(500).json({ error: errorMessage });
   }
-});
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'ok', service: 'NoLimit x402 Server', llm: 'Venice AI' });
 });
 
 // Error handler
