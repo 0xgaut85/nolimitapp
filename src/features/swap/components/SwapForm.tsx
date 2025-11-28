@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
+import { useState, useEffect, useRef, useCallback, RefObject, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction } from 'wagmi';
+import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
 import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
-import { config } from '@/config';
+import { wrapFetchWithPayment } from 'x402-fetch';
 
 type PhantomProvider = {
   publicKey?: PublicKey;
@@ -377,9 +377,28 @@ export function SwapForm() {
   };
 
   const { sendTransaction } = useSendTransaction();
+  const { data: walletClient } = useWalletClient();
+
+  const fetchWithPayment = useMemo(() => {
+    if (!walletClient) return null;
+    try {
+      return wrapFetchWithPayment(
+        fetch,
+        walletClient as any,
+        BigInt(2 * 10 ** 6), // Allow up to 2 USDC per swap call
+      );
+    } catch (error) {
+      console.error('[Swap] Failed to initialize x402 payment client', error);
+      return null;
+    }
+  }, [walletClient]);
 
   const executeSwap = async () => {
     if (!fromAmount || !toAmount) return;
+    if (!fetchWithPayment) {
+      setSwapError('Connect your Base wallet to authorize swap payments.');
+      return;
+    }
     
     setIsSwapping(true);
     setSwapError(null);
@@ -396,7 +415,7 @@ export function SwapForm() {
       const amountInSmallestUnit = parseUnits(fromAmount, decimals).toString();
 
       // Call our x402 server to get the swap transaction
-      const response = await fetch(`${config.x402ServerUrl}/api/swap/transaction`, {
+      const response = await fetchWithPayment('/api/noLimitSwap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

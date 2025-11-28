@@ -93,7 +93,7 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const response = await fetchWithPayment('/api/agent/chat', {
+      const response = await fetchWithPayment('/api/noLimitLLM', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -33,6 +33,7 @@ if (!facilitatorUrl || !payTo) {
 }
 
 const app = express();
+const serverPublicUrl = process.env.X402_PUBLIC_URL || process.env.X402_SERVER_URL || 'https://x402.nolimit.foundation';
 
 // Trust proxy for Railway
 app.set('trust proxy', true);
@@ -79,13 +80,25 @@ if (cdpApiKeyId && cdpApiKeySecret) {
 app.use(paymentMiddleware(
   payTo,
   {
-    'POST /api/agent/chat': {
+    'POST /noLimitLLM': {
       price: '$0.05',
       network: 'base',
+      config: {
+        description: 'noLimit LLM – Uncensored AI access',
+        mimeType: 'application/json',
+        discoverable: true,
+        resource: `${serverPublicUrl}/noLimitLLM`,
+      },
     },
-    'POST /api/swap/transaction': {
+    'POST /noLimitSwap': {
       price: '$0.10',
       network: 'base',
+      config: {
+        description: 'noLimit Swap – Cross-network routing',
+        mimeType: 'application/json',
+        discoverable: true,
+        resource: `${serverPublicUrl}/noLimitSwap`,
+      },
     },
   },
   facilitatorConfig,
@@ -278,8 +291,8 @@ async function get1inchSwapTransaction(
 
 // --- ENDPOINTS ---
 
-// Route: AI Agent Chat (powered by Venice AI - uncensored)
-app.post('/api/agent/chat', async (req, res) => {
+// Route: noLimit LLM (powered by Venice AI - uncensored)
+app.post('/noLimitLLM', async (req, res) => {
   if (res.headersSent) return;
   
   try {
@@ -290,7 +303,7 @@ app.post('/api/agent/chat', async (req, res) => {
     }
 
     const user = await getOrCreateUser(userAddress);
-    await savePayment(user.id, 'agent', '0.05', 'base');
+    await savePayment(user.id, 'noLimitLLM', '0.05', 'base');
     
     // Build messages array with system prompt and conversation history
     const messages: VeniceMessage[] = [
@@ -337,8 +350,8 @@ app.post('/api/agent/chat', async (req, res) => {
   }
 });
 
-// Route: Swap Transaction
-app.post('/api/swap/transaction', async (req, res) => {
+// Route: noLimit Swap Transaction
+app.post('/noLimitSwap', async (req, res) => {
   if (res.headersSent) return;
   
   try {
@@ -349,7 +362,7 @@ app.post('/api/swap/transaction', async (req, res) => {
     }
     
     const user = await getOrCreateUser(userAddress);
-    await savePayment(user.id, 'swap', '0.10', chain);
+    await savePayment(user.id, 'noLimitSwap', '0.10', chain);
     
     let swapResult: SwapResult;
 

@@ -41,7 +41,7 @@ const API_URL = 'https://x402.nolimit.foundation';`}
 
 async function chatWithAgent(message: string, userAddress: string) {
   // Automatic 402 Payment Handling
-  const response = await x402Fetch('https://x402.nolimit.foundation/api/agent/chat', {
+  const response = await x402Fetch('https://x402.nolimit.foundation/noLimitLLM', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, userAddress }),
