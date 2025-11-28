@@ -29,6 +29,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="icon" href="/illustration/logox.jpg" type="image/jpeg" />
+        <link rel="shortcut icon" href="/illustration/logox.jpg" type="image/jpeg" />
+        <link rel="apple-touch-icon" href="/illustration/logox.jpg" />
+      </head>
       <body className="dark">
         <Providers>
           <PasswordGate>
