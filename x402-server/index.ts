@@ -151,7 +151,8 @@ if (cdpApiKeyId && cdpApiKeySecret) {
 // Solana merchant address (base58 format) - required for Solana x402 payments
 const solanaMerchantAddress = process.env.SOLANA_MERCHANT_ADDRESS;
 
-const paymentResources: Parameters<typeof paymentMiddleware>[1] = {
+// --- BASE (EVM) Payment Resources ---
+const basePaymentResources: Parameters<typeof paymentMiddleware>[1] = {
   'POST /noLimitLLM': {
     price: '$0.05',
     network: 'base',
@@ -180,17 +181,54 @@ const paymentResources: Parameters<typeof paymentMiddleware>[1] = {
   },
 };
 
-// Note: Solana x402 payments require a separate Solana merchant address.
-// The paymentMiddleware only accepts one payTo address, so Solana routes
-// would need their own middleware instance with a Solana address.
-// For now, Solana users will be prompted to switch to Base network.
+// --- SOLANA Payment Resources ---
+const solanaPaymentResources: Parameters<typeof paymentMiddleware>[1] = {
+  'POST /noLimitLLM/solana': {
+    price: '$0.05',
+    network: 'solana',
+    config: {
+      description: 'Uncensored AI conversations with complete privacy and zero data retention',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitLLM/solana`,
+      name: 'noLimit LLM (Solana)',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'AI',
+    },
+  },
+  'POST /noLimitSwap/solana': {
+    price: '$0.10',
+    network: 'solana',
+    config: {
+      description: 'Privacy-focused decentralized exchange with optimal swap execution',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitSwap/solana`,
+      name: 'noLimit Swap (Solana)',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Trading',
+    },
+  },
+};
 
-// Payment middleware configuration (x402scan metadata baked into config above)
+// Payment middleware for Base (EVM)
 app.use(paymentMiddleware(
   payTo,
-  paymentResources,
+  basePaymentResources,
   facilitatorConfig,
 ));
+
+// Payment middleware for Solana (separate instance with Solana address)
+if (solanaMerchantAddress) {
+  console.log('[x402-server] Solana payments enabled with address:', solanaMerchantAddress);
+  app.use(paymentMiddleware(
+    solanaMerchantAddress,
+    solanaPaymentResources,
+    facilitatorConfig,
+  ));
+} else {
+  console.log('[x402-server] Solana payments disabled - set SOLANA_MERCHANT_ADDRESS to enable');
+}
 
 // Helper: Get or create user
 async function getOrCreateUser(address: string) {
