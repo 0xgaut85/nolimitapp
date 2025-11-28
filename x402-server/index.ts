@@ -70,17 +70,17 @@ app.get('/', (req, res) => {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>noLimit — x402 Server</title>
+    <title>noLimit Foundation</title>
     <meta name="description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
     <link rel="icon" type="image/jpeg" href="${logoUrl}" />
     <link rel="shortcut icon" type="image/jpeg" href="${logoUrl}" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="noLimit — x402 Server" />
+    <meta property="og:title" content="noLimit Foundation" />
     <meta property="og:description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
     <meta property="og:url" content="${serverPublicUrl}/" />
     <meta property="og:image" content="${logoUrl}" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="noLimit — x402 Server" />
+    <meta name="twitter:title" content="noLimit Foundation" />
     <meta name="twitter:description" content="A privacy-first AI ecosystem, redefining what AI can and should be." />
     <meta name="twitter:image" content="${logoUrl}" />
     <style>
@@ -97,7 +97,7 @@ app.get('/', (req, res) => {
   <body>
     <div class="card">
       <img class="logo" src="${logoUrl}" alt="noLimit" onerror="this.style.display='none'" />
-      <h1>noLimit — x402 Server</h1>
+      <h1>noLimit Foundation</h1>
       <p>A privacy-first AI ecosystem, redefining what AI can and should be.</p>
       <div class="grid">
         <a class="pill" href="/health">Health</a>
@@ -160,24 +160,26 @@ app.use(paymentMiddleware(
       price: '$0.05',
       network: 'base',
       config: {
-        description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
+        description: 'Uncensored AI conversations with complete privacy and zero data retention',
         mimeType: 'application/json',
         discoverable: true,
         resource: `${serverPublicUrl}/noLimitLLM`,
         name: 'noLimit LLM',
         logo: 'https://nolimit.foundation/illustration/logox.jpg',
+        category: 'AI',
       },
     },
     'POST /noLimitSwap': {
       price: '$0.10',
       network: 'base',
       config: {
-        description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
+        description: 'Privacy-focused decentralized exchange aggregator for seamless cross-chain swaps',
         mimeType: 'application/json',
         discoverable: true,
         resource: `${serverPublicUrl}/noLimitSwap`,
         name: 'noLimit Swap',
         logo: 'https://nolimit.foundation/illustration/logox.jpg',
+        category: 'Trading',
       },
     },
   },
