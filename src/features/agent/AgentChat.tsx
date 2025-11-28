@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { base } from 'wagmi/chains';
-import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
+import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
 
 type Message = {
   id: string;
@@ -29,15 +29,16 @@ export function AgentChat() {
   const evmAccount = useAppKitAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   const { caipNetwork } = useAppKitNetwork();
-  const { walletProvider: solanaProvider } = useAppKitProvider<any>('solana');
 
   // Check if Solana wallet is connected
   const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
   const connectedAddress = (isSolanaActive ? solanaAccount.address : evmAccount.address) || address;
   const isWalletConnected = Boolean(connectedAddress);
 
-  // Create payment-wrapped fetch for EVM (Base)
-  const evmFetchWithPayment = useMemo(() => {
+  // x402-fetch for EVM (Base) only
+  // Note: Solana x402 payments require a TransactionSigner from @solana/kit
+  // which is not compatible with Reown's wallet provider. Solana support coming soon.
+  const fetchWithPayment = useMemo(() => {
     if (!walletClient) return null;
     try {
       return wrapFetchWithPayment(
@@ -46,30 +47,10 @@ export function AgentChat() {
         BigInt(1 * 10 ** 6), // max 1 USDC
       );
     } catch (err) {
-      console.error('[x402-fetch] Failed to initialize EVM:', err);
+      console.error('[x402-fetch] Failed to initialize:', err);
       return null;
     }
   }, [walletClient]);
-
-  // Create payment-wrapped fetch for Solana
-  const solanaFetchWithPayment = useMemo(() => {
-    if (!solanaProvider) return null;
-    try {
-      return wrapFetchWithPayment(
-        fetch,
-        solanaProvider as any,
-        BigInt(1 * 10 ** 6), // max 1 USDC
-        undefined,
-        { svmConfig: { rpcUrl: config.networks.solana.rpcUrl } },
-      );
-    } catch (err) {
-      console.error('[x402-fetch] Failed to initialize Solana:', err);
-      return null;
-    }
-  }, [solanaProvider]);
-
-  // Select the right fetch based on active network
-  const fetchWithPayment = isSolanaActive ? solanaFetchWithPayment : evmFetchWithPayment;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -94,12 +75,16 @@ export function AgentChat() {
       setError('Please connect your wallet first');
       return;
     }
+    // Solana x402 payments not yet supported (requires @solana/kit TransactionSigner)
+    if (isSolanaActive) {
+      setError('Solana payments coming soon. Please switch to Base network.');
+      return;
+    }
     if (!fetchWithPayment) {
       setError('Payment client not available. Ensure your wallet is connected.');
       return;
     }
-    // Validate network - either Base or Solana
-    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
+    if (!chainId || chainId !== base.id) {
       setError('Switch to Base network to continue.');
       return;
     }
@@ -125,8 +110,7 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
-      const response = await fetchWithPayment(apiPath, {
+      const response = await fetchWithPayment('/api/noLimitLLM', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
