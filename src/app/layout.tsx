@@ -5,10 +5,16 @@ import { PasswordGate } from '@/components/PasswordGate';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'noLimit Foundation',
-  description: 'Enterprise-grade language models with complete freedom. No guardrails, no restrictions. Reliable, uncensored intelligence for developers and enterprises.',
+  title: 'noLimit App',
+  description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
   icons: {
     icon: '/illustration/logox.jpg',
+    apple: '/illustration/logox.jpg',
+  },
+  openGraph: {
+    title: 'noLimit App',
+    description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
+    images: ['/illustration/logox.jpg'],
   },
 };
 

@@ -294,7 +294,7 @@ export function AgentChat() {
             </p>
             <span className="text-white/20">•</span>
             <p className="text-xs text-white/40">
-              Powered by x402 Protocol & Venice AI
+              Powered by noLimit LLM
             </p>
           </div>
         </div>

@@ -86,6 +86,10 @@ if (cdpApiKeyId && cdpApiKeySecret) {
 }
 
 // Payment middleware configuration
+// x402scan registration metadata:
+// - Name: noLimit
+// - Description: A privacy-first AI ecosystem, redefining what AI can and should be.
+// - Logo: https://nolimit.foundation/illustration/logox.jpg
 app.use(paymentMiddleware(
   payTo,
   {
@@ -93,20 +97,24 @@ app.use(paymentMiddleware(
       price: '$0.05',
       network: 'base',
       config: {
-        description: 'noLimit LLM – Uncensored AI access',
+        description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
         mimeType: 'application/json',
         discoverable: true,
         resource: `${serverPublicUrl}/noLimitLLM`,
+        name: 'noLimit LLM',
+        logo: 'https://nolimit.foundation/illustration/logox.jpg',
       },
     },
     'POST /noLimitSwap': {
       price: '$0.10',
       network: 'base',
       config: {
-        description: 'noLimit Swap – Cross-network routing',
+        description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
         mimeType: 'application/json',
         discoverable: true,
         resource: `${serverPublicUrl}/noLimitSwap`,
+        name: 'noLimit Swap',
+        logo: 'https://nolimit.foundation/illustration/logox.jpg',
       },
     },
   },
