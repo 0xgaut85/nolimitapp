@@ -7,9 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { base } from 'wagmi/chains';
-import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
-import type { TransactionSigner } from '@solana/kit';
-import type { Signer, X402Config } from 'x402/types';
+import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
 
 type Message = {
   id: string;
@@ -31,48 +29,26 @@ export function AgentChat() {
   const evmAccount = useAppKitAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   const { caipNetwork } = useAppKitNetwork();
-  const { walletProvider: solanaSigner } = useAppKitProvider<TransactionSigner>('solana');
 
+  // Check if Solana wallet is connected (to show appropriate error message)
   const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
   const connectedAddress = (isSolanaActive ? solanaAccount.address : evmAccount.address) || address;
   const isWalletConnected = Boolean(connectedAddress);
 
-  const x402Config = useMemo<X402Config | undefined>(() => {
-    if (isSolanaActive) {
-      return {
-        svmConfig: {
-          rpcUrl: config.networks.solana.rpcUrl,
-        },
-      };
-    }
-    return undefined;
-  }, [isSolanaActive]);
-
-  const signer = useMemo<Signer | null>(() => {
-    if (isSolanaActive && solanaSigner) {
-      return solanaSigner as unknown as Signer;
-    }
-    if (!isSolanaActive && walletClient) {
-      return walletClient as unknown as Signer;
-    }
-    return null;
-  }, [isSolanaActive, solanaSigner, walletClient]);
-
   const fetchWithPayment = useMemo(() => {
-    if (!signer) return null;
+    // Only support EVM (Base) for now - Solana x402 requires separate merchant address
+    if (!walletClient) return null;
     try {
       return wrapFetchWithPayment(
         fetch,
-        signer as any,
+        walletClient as any,
         BigInt(1 * 10 ** 6), // max 1 USDC
-        undefined,
-        x402Config,
       );
     } catch (err) {
       console.error('[x402-fetch] Failed to initialize:', err);
       return null;
     }
-  }, [signer, x402Config]);
+  }, [walletClient]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -101,7 +77,13 @@ export function AgentChat() {
       setError('Payment client not available. Ensure your wallet is connected.');
       return;
     }
-    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
+    // x402 payments currently only work on Base network
+    // Solana support requires a separate Solana merchant address
+    if (isSolanaActive) {
+      setError('Solana payments coming soon. Please switch to Base network to use the agent.');
+      return;
+    }
+    if (!chainId || chainId !== base.id) {
       setError('Switch to Base network to continue.');
       return;
     }
@@ -127,8 +109,7 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
-      const response = await fetchWithPayment(apiPath, {
+      const response = await fetchWithPayment('/api/noLimitLLM', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
