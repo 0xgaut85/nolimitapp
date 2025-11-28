@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   title: 'noLimit App',
   description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
   icons: {
-    icon: '/illustration/logox.jpg',
+    icon: [
+      { url: '/illustration/logox.jpg', type: 'image/jpeg' },
+      { url: '/icon.jpg', type: 'image/jpeg' },
+    ],
+    shortcut: '/illustration/logox.jpg',
     apple: '/illustration/logox.jpg',
   },
   openGraph: {
