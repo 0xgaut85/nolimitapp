@@ -121,6 +121,7 @@ export function SwapForm() {
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
   const [swapSuccess, setSwapSuccess] = useState(false);
+  const [nlEarned, setNlEarned] = useState<string | null>(null);
 
   const [phantomProvider, setPhantomProvider] = useState<PhantomProvider | null>(null);
   const [solanaAddress, setSolanaAddress] = useState<string | null>(null);
@@ -497,6 +498,7 @@ export function SwapForm() {
     setIsSwapping(true);
     setSwapError(null);
     setSwapSuccess(false);
+    setNlEarned(null);
 
     try {
       const userAddress = fromChain === 'Solana' ? effectiveSolanaAddress : address;
@@ -575,6 +577,7 @@ export function SwapForm() {
       }
 
       setSwapSuccess(true);
+      setNlEarned(data.nlEarned || null);
       setFromAmount('');
       setToAmount('');
       
@@ -1008,7 +1011,19 @@ export function SwapForm() {
 
           {swapSuccess && (
             <div className="bg-green-500/10 border border-green-500/30 text-green-400 p-3 rounded-lg font-mono text-sm mt-4">
-              Swap executed successfully!
+              <div className="flex items-center justify-between">
+                <span>Swap executed successfully!</span>
+                {nlEarned && parseFloat(nlEarned) > 0 && (
+                  <span className="bg-[#b8d1b3]/20 text-[#b8d1b3] px-2 py-1 rounded-md text-xs font-bold">
+                    +{parseFloat(nlEarned).toFixed(2)} $NL
+                  </span>
+                )}
+              </div>
+              {nlEarned && parseFloat(nlEarned) > 0 && (
+                <p className="text-xs text-white/50 mt-1">
+                  You earned $NL rewards! Check your balance in the Dashboard.
+                </p>
+              )}
             </div>
           )}
 

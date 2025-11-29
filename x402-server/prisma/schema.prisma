@@ -13,6 +13,7 @@ datasource db {
 model User {
   id        String   @id @default(cuid())
   address   String   @unique
+  nlBalance String   @default("0")  // $NL rewards balance
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
@@ -20,6 +21,7 @@ model User {
   agentUsages  AgentUsage[]
   swapUsages   SwapUsage[]
   apiKeys      ApiKey[]
+  nlRewards    NLReward[]
 }
 
 model ApiKey {
@@ -77,12 +79,30 @@ model SwapUsage {
   toToken     String
   fromAmount  String
   toAmount    String
+  usdValue    String?  // USD value of the swap
+  nlEarned    String?  // $NL tokens earned (1$ = 1 NL)
   fee         String   // 0.10 USDC
   txHash      String?
   createdAt   DateTime @default(now())
   
   @@index([userId])
   @@index([chain])
+  @@index([createdAt])
+}
+
+// $NL Rewards tracking
+model NLReward {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  amount      String   // Amount of $NL earned
+  source      String   // "swap", "referral", "airdrop", etc.
+  sourceId    String?  // Reference to the source (e.g., swapUsageId)
+  usdValue    String?  // USD value that generated this reward
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([source])
   @@index([createdAt])
 }
 

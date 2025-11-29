@@ -2,25 +2,14 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount } from 'wagmi';
-import { useAppKitAccount } from '@reown/appkit/react';
 import { config } from '@/config';
 
-type AuthMethod = 'x402' | 'apikey';
-
 export function ApiPlayground() {
-  const { address: evmAddress, isConnected: evmConnected } = useAccount();
-  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
-  
-  const [authMethod, setAuthMethod] = useState<AuthMethod>('apikey');
   const [apiKey, setApiKey] = useState('');
   const [message, setMessage] = useState('What is the capital of France?');
   const [response, setResponse] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const connectedAddress = evmAddress || solanaAccount.address;
-  const isConnected = evmConnected || solanaAccount.isConnected;
 
   const handleSend = async () => {
     setLoading(true);
@@ -28,34 +17,26 @@ export function ApiPlayground() {
     setResponse(null);
 
     try {
-      if (authMethod === 'apikey') {
-        if (!apiKey.trim()) {
-          throw new Error('Please enter your API key');
-        }
-
-        const res = await fetch(`${config.x402ServerUrl}/api/agent`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': apiKey.trim(),
-          },
-          body: JSON.stringify({ message }),
-        });
-
-        const data = await res.json();
-        
-        if (!res.ok) {
-          throw new Error(data.error || 'Request failed');
-        }
-
-        setResponse(JSON.stringify(data, null, 2));
-      } else {
-        // x402 payment flow - would need wallet integration
-        if (!isConnected) {
-          throw new Error('Please connect your wallet to use x402 payment');
-        }
-        throw new Error('x402 playground requires wallet integration. Use the Agent Chat page for full x402 experience.');
+      if (!apiKey.trim()) {
+        throw new Error('Please enter your API key');
       }
+
+      const res = await fetch(`${config.x402ServerUrl}/api/agent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey.trim(),
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Request failed');
+      }
+
+      setResponse(JSON.stringify(data, null, 2));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Request failed');
     } finally {
@@ -67,57 +48,24 @@ export function ApiPlayground() {
     <div className="bg-black/40 backdrop-blur-sm rounded-2xl border border-white/10 overflow-hidden">
       <div className="border-b border-white/10 p-4 flex items-center justify-between">
         <h3 className="font-mono text-white text-sm uppercase tracking-wider">API Playground</h3>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setAuthMethod('apikey')}
-            className={`px-3 py-1 text-xs font-mono rounded-lg border transition-all ${
-              authMethod === 'apikey'
-                ? 'bg-[#b8d1b3]/20 border-[#b8d1b3]/40 text-[#b8d1b3]'
-                : 'border-white/10 text-white/50 hover:text-white/80'
-            }`}
-          >
-            API Key
-          </button>
-          <button
-            onClick={() => setAuthMethod('x402')}
-            className={`px-3 py-1 text-xs font-mono rounded-lg border transition-all ${
-              authMethod === 'x402'
-                ? 'bg-[#b8d1b3]/20 border-[#b8d1b3]/40 text-[#b8d1b3]'
-                : 'border-white/10 text-white/50 hover:text-white/80'
-            }`}
-          >
-            x402 Payment
-          </button>
-        </div>
+        <span className="px-3 py-1 text-xs font-mono rounded-lg bg-[#b8d1b3]/20 border border-[#b8d1b3]/40 text-[#b8d1b3]">
+          API Key Auth
+        </span>
       </div>
 
       <div className="p-5 space-y-4">
-        {authMethod === 'apikey' && (
-          <div>
-            <label className="block text-xs font-mono text-white/50 uppercase tracking-wider mb-2">
-              API Key
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="nl_xxxxxxxxxxxxxxxx"
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 font-mono text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#b8d1b3]/50"
-            />
-          </div>
-        )}
-
-        {authMethod === 'x402' && (
-          <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-            <p className="text-sm text-white/60 font-mono">
-              {isConnected ? (
-                <>Connected: <span className="text-[#b8d1b3]">{connectedAddress?.slice(0, 6)}...{connectedAddress?.slice(-4)}</span></>
-              ) : (
-                'Connect your wallet to test x402 payment flow'
-              )}
-            </p>
-          </div>
-        )}
+        <div>
+          <label className="block text-xs font-mono text-white/50 uppercase tracking-wider mb-2">
+            API Key
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="nl_xxxxxxxxxxxxxxxx"
+            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 font-mono text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#b8d1b3]/50"
+          />
+        </div>
 
         <div>
           <label className="block text-xs font-mono text-white/50 uppercase tracking-wider mb-2">
@@ -177,4 +125,3 @@ export function ApiPlayground() {
     </div>
   );
 }
-

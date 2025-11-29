@@ -132,6 +132,7 @@ app.use((req, res, next) => {
     'X-Payment-Response, x-payment-response, ' +
     'X-Payment-Required, x-payment-required, ' +
     'X-Payment-Quote, x-payment-quote, ' +
+    'X-API-Key, x-api-key, X-Api-Key, ' +
     'WWW-Authenticate, Access-Control-Expose-Headers'
   );
   res.setHeader('Access-Control-Expose-Headers', 
@@ -1170,7 +1171,37 @@ async function handleSwapRequest(
       swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
     }
 
-    await prisma.swapUsage.create({
+    // Calculate USD value and NL rewards
+    // Rule: 1$ swapped = 1 $NL earned
+    let usdValue = '0';
+    const stablecoins = ['USDC', 'USDT'];
+    
+    if (stablecoins.includes(fromToken)) {
+      // If swapping from stablecoin, amount is the USD value
+      const decimals = normalizedChain === 'solana' ? 6 : 6; // USDC has 6 decimals
+      usdValue = (parseFloat(amount) / Math.pow(10, decimals)).toFixed(2);
+    } else if (stablecoins.includes(toToken) && swapResult.quote?.toAmount) {
+      // If swapping to stablecoin, output amount is the USD value
+      const decimals = normalizedChain === 'solana' ? 6 : 6;
+      usdValue = (parseFloat(swapResult.quote.toAmount) / Math.pow(10, decimals)).toFixed(2);
+    } else {
+      // For non-stablecoin swaps, estimate based on common prices
+      // This is a rough estimate - in production you'd use a price oracle
+      if (fromToken === 'ETH') {
+        const ethPrice = 3500; // Rough estimate
+        const ethAmount = parseFloat(amount) / 1e18;
+        usdValue = (ethAmount * ethPrice).toFixed(2);
+      } else if (fromToken === 'SOL') {
+        const solPrice = 200; // Rough estimate
+        const solAmount = parseFloat(amount) / 1e9;
+        usdValue = (solAmount * solPrice).toFixed(2);
+      }
+    }
+    
+    // Calculate NL rewards: 1$ = 1 NL
+    const nlEarned = usdValue;
+    
+    const swapUsage = await prisma.swapUsage.create({
       data: {
         userId: user.id,
         chain: normalizedChain,
@@ -1178,13 +1209,37 @@ async function handleSwapRequest(
         toToken,
         fromAmount: amount,
         toAmount: swapResult.quote?.toAmount || '0',
+        usdValue,
+        nlEarned,
         fee: '0.10',
         txHash: '',
       },
     });
+    
+    // Record NL reward and update user balance if earned
+    if (parseFloat(nlEarned) > 0) {
+      await prisma.nLReward.create({
+        data: {
+          userId: user.id,
+          amount: nlEarned,
+          source: 'swap',
+          sourceId: swapUsage.id,
+          usdValue,
+        },
+      });
+      
+      // Update user's NL balance
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          nlBalance: (parseFloat(user.nlBalance || '0') + parseFloat(nlEarned)).toFixed(2),
+        },
+      });
+    }
 
     res.json({
       success: true,
+      nlEarned,
       ...swapResult,
     });
   } catch (error) {
@@ -1377,6 +1432,7 @@ app.get('/api/stats/user/:address', async (req, res) => {
         payments: { orderBy: { createdAt: 'desc' }, take: 50 },
         agentUsages: { orderBy: { createdAt: 'desc' }, take: 50 },
         swapUsages: { orderBy: { createdAt: 'desc' }, take: 50 },
+        nlRewards: { orderBy: { createdAt: 'desc' }, take: 50 },
       },
     });
 
@@ -1386,13 +1442,16 @@ app.get('/api/stats/user/:address', async (req, res) => {
         totalSpent: '0.00',
         agentMessages: 0,
         swapCount: 0,
+        nlBalance: '0.00',
         payments: [],
         agentHistory: [],
         swapHistory: [],
+        nlRewards: [],
       });
     }
 
     const totalSpent = user.payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const totalNlEarned = user.nlRewards.reduce((sum, r) => sum + parseFloat(r.amount || '0'), 0);
 
     res.json({
       exists: true,
@@ -1402,6 +1461,8 @@ app.get('/api/stats/user/:address', async (req, res) => {
       totalSpent: totalSpent.toFixed(2),
       agentMessages: user.agentUsages.length,
       swapCount: user.swapUsages.length,
+      nlBalance: user.nlBalance || '0.00',
+      totalNlEarned: totalNlEarned.toFixed(2),
       payments: user.payments.map(p => ({
         id: p.id,
         type: p.service,
@@ -1424,9 +1485,18 @@ app.get('/api/stats/user/:address', async (req, res) => {
         toToken: s.toToken,
         fromAmount: s.fromAmount,
         toAmount: s.toAmount,
+        usdValue: (s as any).usdValue || '0',
+        nlEarned: (s as any).nlEarned || '0',
         fee: s.fee,
         txHash: s.txHash,
         createdAt: s.createdAt,
+      })),
+      nlRewards: user.nlRewards.map(r => ({
+        id: r.id,
+        amount: r.amount,
+        source: r.source,
+        usdValue: r.usdValue,
+        createdAt: r.createdAt,
       })),
     });
   } catch (error) {
