@@ -8,9 +8,10 @@ import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { createX402Client, X402Client } from 'x402-solana/client';
 import { base } from 'wagmi/chains';
-import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
+import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { VersionedTransaction } from '@solana/web3.js';
+import type { Provider } from '@reown/appkit-adapter-solana/react';
 
 type Message = {
   id: string;
@@ -25,13 +26,16 @@ export function AgentChat() {
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   
-  // Solana Wallet Adapter hook
+  // Solana Wallet Adapter hook (fallback)
   const solanaWallet = useWallet();
   
-  // Reown hooks for network detection
+  // Reown hooks for network detection and Solana wallet
   const evmAccount = useAppKitAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   const { caipNetwork } = useAppKitNetwork();
+  
+  // Get Reown's Solana wallet provider for signing
+  const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -71,34 +75,64 @@ export function AgentChat() {
   }, [walletClient]);
 
   // x402-solana client for Solana payments (official PayAI x402-solana package)
+  // Supports both Reown Solana wallets and Solana Wallet Adapter
   const solanaX402Client = useMemo((): X402Client | null => {
-    if (!solanaWallet.connected || !solanaWallet.publicKey || !solanaWallet.signTransaction) {
-      return null;
+    // Try Reown's Solana provider first (when connected via Reown UI)
+    if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
+      try {
+        const walletAdapter = {
+          address: solanaAccount.address,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            // Use Reown's Solana provider to sign
+            const signedTx = await reownSolanaProvider.signTransaction(tx);
+            return signedTx as VersionedTransaction;
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
+        });
+      } catch (err) {
+        console.error('[x402-solana] Failed to initialize with Reown:', err);
+      }
     }
-    try {
-      // Create wallet adapter interface as expected by x402-solana
-      // Reference: https://github.com/PayAINetwork/x402-solana
-      const walletAdapter = {
-        address: solanaWallet.publicKey.toBase58(),
-        signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
-          if (!solanaWallet.signTransaction) {
-            throw new Error('Wallet does not support transaction signing');
-          }
-          return await solanaWallet.signTransaction(tx);
-        },
-      };
-      
-      return createX402Client({
-        wallet: walletAdapter,
-        network: 'solana', // mainnet
-        rpcUrl: config.networks.solana.rpcUrl,
-        maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
-      });
-    } catch (err) {
-      console.error('[x402-solana] Failed to initialize:', err);
-      return null;
+    
+    // Fallback to Solana Wallet Adapter (for direct wallet connections)
+    if (solanaWallet.connected && solanaWallet.publicKey && solanaWallet.signTransaction) {
+      try {
+        const walletAdapter = {
+          address: solanaWallet.publicKey.toBase58(),
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            if (!solanaWallet.signTransaction) {
+              throw new Error('Wallet does not support transaction signing');
+            }
+            return await solanaWallet.signTransaction(tx);
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
+        });
+      } catch (err) {
+        console.error('[x402-solana] Failed to initialize with Wallet Adapter:', err);
+      }
     }
-  }, [solanaWallet.connected, solanaWallet.publicKey, solanaWallet.signTransaction]);
+    
+    return null;
+  }, [
+    solanaAccount.isConnected, 
+    solanaAccount.address, 
+    reownSolanaProvider,
+    solanaWallet.connected, 
+    solanaWallet.publicKey, 
+    solanaWallet.signTransaction
+  ]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

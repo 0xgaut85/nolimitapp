@@ -5,12 +5,13 @@ import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient } from 'wagmi';
-import { useAppKit } from '@reown/appkit/react';
+import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { createX402Client, X402Client } from 'x402-solana/client';
 import { config } from '@/config';
+import type { Provider } from '@reown/appkit-adapter-solana/react';
 
 type PhantomProvider = {
   publicKey?: PublicKey;
@@ -91,6 +92,10 @@ export function SwapForm() {
   const { address, isConnected } = useAccount();
   const { open } = useAppKit();
   const { disconnect } = useDisconnect();
+  
+  // Reown hooks for Solana wallet
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
 
   const [fromChain, setFromChain] = useState<ChainName>('Base');
   const [toChain, setToChain] = useState<ChainName>('Base');
@@ -398,58 +403,80 @@ export function SwapForm() {
 
   // x402-solana client for Solana payments (official PayAI x402-solana package)
   // Reference: https://github.com/PayAINetwork/x402-solana
+  // Supports both Reown Solana wallets and direct Phantom connections
   const solanaX402Client = useMemo((): X402Client | null => {
-    if (!phantomProvider?.publicKey) return null;
-    try {
-      // Create wallet adapter interface as expected by x402-solana
-      const walletAdapter = {
-        address: phantomProvider.publicKey.toBase58(),
-        signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
-          // Phantom wallet supports signTransaction method (different from signAndSendTransaction)
-          // We need to use the Phantom provider's internal sign method
-          if (!phantomProvider) {
-            throw new Error('Phantom wallet not connected');
-          }
-          
-          // Phantom's signTransaction returns the signed transaction
-          // Access the signTransaction method from Phantom
-          const signMethod = (phantomProvider as any).signTransaction;
-          if (typeof signMethod === 'function') {
-            return await signMethod.call(phantomProvider, tx);
-          }
-          
-          // Fallback: Some Phantom versions might have it differently
-          // Try accessing via window.phantom.solana
-          if (typeof window !== 'undefined' && window.phantom?.solana) {
-            const phantom = window.phantom.solana;
-            if (typeof (phantom as any).signTransaction === 'function') {
-              return await (phantom as any).signTransaction(tx);
-            }
-          }
-          
-          throw new Error('Phantom wallet does not support signTransaction');
-        },
-      };
-      
-      return createX402Client({
-        wallet: walletAdapter,
-        network: 'solana',
-        rpcUrl: config.networks.solana.rpcUrl,
-        maxPaymentAmount: BigInt(2 * 10 ** 6), // max 2 USDC per swap
-      });
-    } catch (error) {
-      console.error('[Swap] Failed to initialize x402-solana client', error);
-      return null;
+    // Try Reown's Solana provider first (when connected via Reown UI)
+    if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
+      try {
+        const walletAdapter = {
+          address: solanaAccount.address,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            const signedTx = await reownSolanaProvider.signTransaction(tx);
+            return signedTx as VersionedTransaction;
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(2 * 10 ** 6), // max 2 USDC per swap
+        });
+      } catch (error) {
+        console.error('[Swap] Failed to initialize x402-solana with Reown:', error);
+      }
     }
-  }, [phantomProvider]);
+    
+    // Fallback to direct Phantom connection
+    if (phantomProvider?.publicKey) {
+      try {
+        const walletAdapter = {
+          address: phantomProvider.publicKey.toBase58(),
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            if (!phantomProvider) {
+              throw new Error('Phantom wallet not connected');
+            }
+            
+            const signMethod = (phantomProvider as any).signTransaction;
+            if (typeof signMethod === 'function') {
+              return await signMethod.call(phantomProvider, tx);
+            }
+            
+            if (typeof window !== 'undefined' && window.phantom?.solana) {
+              const phantom = window.phantom.solana;
+              if (typeof (phantom as any).signTransaction === 'function') {
+                return await (phantom as any).signTransaction(tx);
+              }
+            }
+            
+            throw new Error('Phantom wallet does not support signTransaction');
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(2 * 10 ** 6), // max 2 USDC per swap
+        });
+      } catch (error) {
+        console.error('[Swap] Failed to initialize x402-solana with Phantom:', error);
+      }
+    }
+    
+    return null;
+  }, [solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider, phantomProvider]);
 
+  // Get effective Solana address (from Reown or direct Phantom connection)
+  const effectiveSolanaAddress = solanaAccount.address || solanaAddress;
+  
   const executeSwap = async () => {
     if (!fromAmount || !toAmount) return;
     
     // Validate wallet connection based on chain
     if (fromChain === 'Solana') {
-      if (!solanaAddress || !phantomProvider) {
-        setSwapError('Connect your Solana wallet (Phantom) to swap on Solana.');
+      if (!solanaX402Client || !effectiveSolanaAddress) {
+        setSwapError('Connect your Solana wallet to swap on Solana.');
         return;
       }
     } else {
@@ -464,7 +491,7 @@ export function SwapForm() {
     setSwapSuccess(false);
 
     try {
-      const userAddress = fromChain === 'Solana' ? solanaAddress : address;
+      const userAddress = fromChain === 'Solana' ? effectiveSolanaAddress : address;
       if (!userAddress) {
         throw new Error('Please connect your wallet');
       }
@@ -514,13 +541,22 @@ export function SwapForm() {
         throw new Error(data.error || 'Failed to get swap transaction');
       }
 
-      if (fromChain === 'Solana' && phantomProvider) {
-        // Execute Solana swap via Phantom
+      if (fromChain === 'Solana') {
+        // Execute Solana swap via Reown or Phantom
         const txBuffer = Buffer.from(data.tx, 'base64');
         const transaction = VersionedTransaction.deserialize(txBuffer);
         
-        const signedTx = await phantomProvider.signAndSendTransaction(transaction);
-        console.log('[Swap] Solana transaction sent:', signedTx);
+        if (reownSolanaProvider && solanaAccount.isConnected) {
+          // Use Reown's Solana provider
+          const signedTx = await reownSolanaProvider.signAndSendTransaction(transaction);
+          console.log('[Swap] Solana transaction sent via Reown:', signedTx);
+        } else if (phantomProvider) {
+          // Fallback to direct Phantom
+          const signedTx = await phantomProvider.signAndSendTransaction(transaction);
+          console.log('[Swap] Solana transaction sent via Phantom:', signedTx);
+        } else {
+          throw new Error('No Solana wallet provider available');
+        }
       } else if (fromChain === 'Base' && data.tx) {
         // Execute Base swap via wagmi
         sendTransaction({
