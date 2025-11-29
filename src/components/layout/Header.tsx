@@ -15,6 +15,7 @@ export function Header() {
     { name: "Agent", href: "/agent" },
     { name: "Dashboard", href: "/dashboard" },
     { name: "Swap", href: "/swap" },
+    { name: "Mixer", href: "/mixer" },
     { name: "Integration", href: "/integration" },
   ];
 

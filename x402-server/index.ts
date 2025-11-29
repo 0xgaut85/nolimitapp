@@ -920,7 +920,6 @@ async function getJupiterSwapTransaction(
   outputMint: string,
   amount: string,
   slippageBps = 50,
-  recipient?: string,
 ): Promise<SwapResult> {
   // Jupiter Lite API (public, no API key required)
   // Reference: https://dev.jup.ag/api-reference/swap/swap
@@ -951,68 +950,23 @@ async function getJupiterSwapTransaction(
   console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
 
   // 2. Get Swap Transaction
-  // For sending to a different wallet, compute the recipient's Associated Token Account (ATA)
-  let destinationTokenAccount: string | undefined;
-  const SOL_MINT = 'So11111111111111111111111111111111111111112';
-  
-  if (recipient && recipient !== userPublicKey) {
-    // For native SOL output, we can't use destinationTokenAccount (wrapAndUnwrapSol handles it)
-    // For SPL tokens, compute the recipient's ATA
-    if (outputMint !== SOL_MINT) {
-      try {
-        const recipientPubkey = new PublicKey(recipient);
-        const outputMintPubkey = new PublicKey(outputMint);
-        
-        const ata = getAssociatedTokenAddressSync(
-          outputMintPubkey,
-          recipientPubkey,
-          false,
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        );
-        destinationTokenAccount = ata.toBase58();
-        console.log('[Jupiter] Sending to recipient ATA:', destinationTokenAccount);
-      } catch (err) {
-        console.error('[Jupiter] Failed to compute recipient ATA:', err);
-        throw new Error('Invalid recipient wallet address');
-      }
-    } else {
-      // For SOL output to different wallet, we need a different approach
-      // Jupiter will unwrap to the signer, then we'd need a separate transfer
-      console.log('[Jupiter] Warning: Sending native SOL to different wallet not supported. Output will go to your wallet.');
-    }
-  }
-  
   console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
-  
-  const swapBody: Record<string, unknown> = {
-    quoteResponse: quoteData,
-    userPublicKey,
-    dynamicComputeUnitLimit: true,
-    prioritizationFeeLamports: {
-      priorityLevelWithMaxLamports: {
-        maxLamports: 10000000,
-        priorityLevel: 'veryHigh'
-      }
-    }
-  };
-  
-  // Only set destinationTokenAccount for SPL token outputs to different wallet
-  if (destinationTokenAccount) {
-    swapBody.destinationTokenAccount = destinationTokenAccount;
-    // When using destinationTokenAccount, wrapAndUnwrapSol is ignored for output
-    // But we still want to wrap input SOL if needed
-    swapBody.wrapAndUnwrapSol = true;
-    // Skip RPC checks - the transaction will create the ATA if needed via setup instructions
-    swapBody.skipUserAccountsRpcCalls = true;
-  } else {
-    swapBody.wrapAndUnwrapSol = true;
-  }
   
   const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(swapBody)
+    body: JSON.stringify({
+      quoteResponse: quoteData,
+      userPublicKey,
+      wrapAndUnwrapSol: true,
+      dynamicComputeUnitLimit: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          maxLamports: 10000000,
+          priorityLevel: 'veryHigh'
+        }
+      }
+    })
   });
 
   if (!swapResponse.ok) {
@@ -1047,38 +1001,16 @@ async function get1inchSwapTransaction(
   dstToken: string,
   amount: string,
   slippage = 1,
-  recipient?: string,
 ): Promise<SwapResult> {
   if (!ONEINCH_API_KEY) {
     throw new Error('1inch API Key not configured on server');
   }
 
   const chainId = 8453; // Base
-  // Build URL with proper parameters
-  // When using receiver, we need origin param and should not disable estimate
-  const baseUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/swap`;
-  const params = new URLSearchParams({
-    src: srcToken,
-    dst: dstToken,
-    amount: amount,
-    from: userAddress,
-    slippage: slippage.toString(),
-    origin: userAddress, // Required when using receiver
-  });
-  
-  // Add receiver if different wallet specified
-  if (recipient && recipient !== userAddress) {
-    params.append('receiver', recipient);
-    console.log('[1inch] Sending to different wallet:', recipient?.slice(0, 10));
-  } else {
-    // Only disable estimate for same-wallet swaps
-    params.append('disableEstimate', 'true');
-  }
-  
-  const url = `${baseUrl}?${params.toString()}`;
+  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true`;
 
-  console.log('[1inch] Request URL:', url.replace(ONEINCH_API_KEY, '***'));
-  console.log('[1inch] Getting swap for user:', userAddress?.slice(0, 10), 'destination:', (recipient || userAddress)?.slice(0, 10));
+  console.log('[1inch] Request URL:', url.replace(ONEINCH_API_KEY || '', '***'));
+  console.log('[1inch] Getting swap for user:', userAddress?.slice(0, 10));
 
   const response = await fetch(url, {
     headers: {
@@ -1189,9 +1121,9 @@ async function handleSwapRequest(
     console.log('[Swap] Raw body:', req.body);
     console.log('[Swap] Body type:', typeof req.body);
     
-    const { chain, fromToken, toToken, amount, userAddress, recipient } = req.body || {};
+    const { chain, fromToken, toToken, amount, userAddress } = req.body || {};
     
-    console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...', recipient: recipient?.slice(0, 10) || 'self' });
+    console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...' });
 
     if (!fromToken || !toToken || !amount || !userAddress) {
       console.log('[Swap] Missing required fields');
@@ -1215,6 +1147,7 @@ async function handleSwapRequest(
       base: {
         ETH: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
       },
       solana: {
         SOL: 'So11111111111111111111111111111111111111112',
@@ -1226,13 +1159,13 @@ async function handleSwapRequest(
     if (normalizedChain === 'solana') {
       const inputMint = tokens.solana[fromToken] || fromToken;
       const outputMint = tokens.solana[toToken] || toToken;
-      console.log('[Swap] Calling Jupiter API:', { userAddress: userAddress?.slice(0, 10), inputMint, outputMint, amount, recipient: recipient?.slice(0, 10) || 'self' });
-      swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount, 50, recipient);
+      console.log('[Swap] Calling Jupiter API:', { userAddress: userAddress?.slice(0, 10), inputMint, outputMint, amount });
+      swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
       console.log('[Swap] Jupiter response received');
     } else {
       const srcToken = tokens.base[fromToken] || fromToken;
       const dstToken = tokens.base[toToken] || toToken;
-      swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount, 1, recipient);
+      swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
     }
 
     await prisma.swapUsage.create({

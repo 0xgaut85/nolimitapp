@@ -26,7 +26,8 @@ type PhantomProvider = {
 declare global {
   interface Window {
     phantom?: { solana?: PhantomProvider };
-    solana?: PhantomProvider;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    solana?: any;
   }
 }
 
@@ -65,7 +66,7 @@ const tokenOptions: { symbol: TokenSymbol; name: string }[] = [
 
 // Tokens available per chain
 const chainTokens: Record<ChainName, TokenSymbol[]> = {
-  Base: ['ETH', 'USDC'],
+  Base: ['ETH', 'USDC', 'USDT'],
   Solana: ['SOL', 'USDC', 'USDT'],
 };
 
@@ -84,6 +85,7 @@ const chainToNativeToken: Record<ChainName, TokenSymbol> = {
 const tokenAddresses: Record<ChainName, Partial<Record<TokenSymbol, string>>> = {
   Base: {
     USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2', // USDT on Base
   },
   Solana: {
     USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
@@ -519,8 +521,6 @@ export function SwapForm() {
         amount: amountInSmallestUnit,
         userAddress,
         slippage: parseFloat(slippage),
-        // Send to different wallet feature
-        ...(sendToDifferentWallet && recipientAddress ? { recipient: recipientAddress } : {}),
       });
 
       let response: Response;
@@ -971,49 +971,6 @@ export function SwapForm() {
                 )}
               </div>
             </div>
-          </div>
-
-          {/* Send to different wallet */}
-          <div className="mt-4 pt-4 border-t border-white/10">
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={sendToDifferentWallet}
-                onChange={(event) => {
-                  setSendToDifferentWallet(event.target.checked);
-                  if (!event.target.checked) {
-                    setRecipientAddress('');
-                  }
-                }}
-                className="w-5 h-5 accent-[#b8d1b3] cursor-pointer"
-              />
-              <span className="text-sm font-mono text-white/70 group-hover:text-white transition-colors">
-                Send to a different wallet
-              </span>
-            </label>
-            {sendToDifferentWallet && (
-              <div className="mt-3 space-y-2">
-                <label className="text-xs font-mono text-white/60 uppercase tracking-wider font-bold block">
-                  Recipient Wallet Address
-                </label>
-                <input
-                  type="text"
-                  value={recipientAddress}
-                  onChange={(event) => setRecipientAddress(event.target.value)}
-                  placeholder={fromChain === 'Solana' ? 'Enter Solana wallet address' : 'Enter wallet address (0x...)'}
-                  className="w-full bg-white/5 backdrop-blur-sm border border-white/20 text-white p-4 font-mono text-sm focus:outline-none focus:border-[#b8d1b3] hover:border-white/30 transition-colors rounded-lg placeholder:text-white/30"
-                />
-                <p className="text-xs font-mono text-white/40">
-                  ⚠️ Double-check the address. Transactions cannot be reversed.
-                </p>
-                {/* Warning for Solana SOL output */}
-                {fromChain === 'Solana' && toToken === 'SOL' && (
-                  <p className="text-xs font-mono text-amber-400/80">
-                    ⚠️ Sending native SOL to different wallet is not supported. Output will go to your wallet.
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           {fromAmount && toAmount && !pricesLoading && (
