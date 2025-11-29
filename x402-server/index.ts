@@ -531,14 +531,22 @@ async function getJupiterSwapTransaction(
 ): Promise<SwapResult> {
   // 1. Get Quote
   const quoteUrl = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  console.log('[Jupiter] Getting quote from:', quoteUrl);
+  
   const quoteResponse = await fetch(quoteUrl);
   const quoteData = await quoteResponse.json();
+  
+  console.log('[Jupiter] Quote response status:', quoteResponse.status);
 
   if (!quoteData || quoteData.error) {
-    throw new Error(`Jupiter Quote Error: ${quoteData.error || 'Unknown error'}`);
+    console.error('[Jupiter] Quote error:', quoteData);
+    throw new Error(`Jupiter Quote Error: ${quoteData.error || JSON.stringify(quoteData) || 'Unknown error'}`);
   }
+  
+  console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
 
   // 2. Get Swap Transaction
+  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
   const swapResponse = await fetch('https://quote-api.jup.ag/v6/swap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -550,10 +558,14 @@ async function getJupiterSwapTransaction(
   });
 
   const swapData = await swapResponse.json();
+  console.log('[Jupiter] Swap response status:', swapResponse.status);
   
   if (!swapData || !swapData.swapTransaction) {
-    throw new Error('Failed to generate Jupiter swap transaction');
+    console.error('[Jupiter] Swap error:', swapData);
+    throw new Error(`Failed to generate Jupiter swap transaction: ${JSON.stringify(swapData)}`);
   }
+  
+  console.log('[Jupiter] Swap transaction generated successfully');
 
   return {
     chain: 'solana',
@@ -670,19 +682,31 @@ async function handleSwapRequest(
   res: express.Response,
   chainOverride?: 'base' | 'solana',
 ) {
-  if (res.headersSent) return;
+  if (res.headersSent) {
+    console.log('[Swap] Headers already sent, skipping');
+    return;
+  }
 
   try {
     const { chain, fromToken, toToken, amount, userAddress } = req.body;
+    
+    console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...' });
 
     if (!fromToken || !toToken || !amount || !userAddress) {
+      console.log('[Swap] Missing required fields');
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     const normalizedChain = (chainOverride ?? chain ?? 'base').toLowerCase() === 'solana' ? 'solana' : 'base';
+    console.log('[Swap] Normalized chain:', normalizedChain);
 
+    console.log('[Swap] Creating/getting user...');
     const user = await getOrCreateUser(userAddress);
+    console.log('[Swap] User ID:', user.id);
+    
+    console.log('[Swap] Saving payment record...');
     await savePayment(user.id, 'noLimitSwap', '0.10', normalizedChain);
+    console.log('[Swap] Payment saved');
 
     let swapResult: SwapResult;
 
@@ -701,7 +725,9 @@ async function handleSwapRequest(
     if (normalizedChain === 'solana') {
       const inputMint = tokens.solana[fromToken] || fromToken;
       const outputMint = tokens.solana[toToken] || toToken;
+      console.log('[Swap] Calling Jupiter API:', { userAddress: userAddress?.slice(0, 10), inputMint, outputMint, amount });
       swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
+      console.log('[Swap] Jupiter response received');
     } else {
       const srcToken = tokens.base[fromToken] || fromToken;
       const dstToken = tokens.base[toToken] || toToken;
