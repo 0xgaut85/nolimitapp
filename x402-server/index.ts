@@ -1336,7 +1336,7 @@ async function handleSwapRequest(
     }
 
     // Calculate USD value and NL rewards
-    // Rule: 1$ swapped = 100 $NL earned
+    // Rule: 1$ swapped = 10 $NL earned
     let usdValue = '0';
     const stablecoins = ['USDC', 'USDT'];
     
@@ -1362,8 +1362,8 @@ async function handleSwapRequest(
       }
     }
     
-    // Calculate NL rewards: 1$ = 100 $NL
-    const nlEarned = (parseFloat(usdValue) * 100).toFixed(2);
+    // Calculate NL rewards: 1$ = 10 $NL
+    const nlEarned = (parseFloat(usdValue) * 10).toFixed(2);
     console.log('[Swap] NL rewards calculation:', { usdValue, nlEarned });
     
     const swapUsage = await prisma.swapUsage.create({
