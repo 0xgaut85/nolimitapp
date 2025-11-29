@@ -272,10 +272,10 @@ async function solanaX402Middleware(
   res: express.Response,
   next: express.NextFunction
 ) {
-  // Only handle Solana routes
-  if (!req.path.endsWith('/solana')) {
-    return next();
-  }
+  // Get the full path (req.baseUrl + req.path when mounted, or req.originalUrl)
+  const fullPath = req.baseUrl + req.path;
+  
+  console.log('[x402-solana] Middleware called for:', fullPath, 'method:', req.method);
 
   // Check if Solana payments are enabled
   if (!solanaPaymentHandler || !solanaMerchantAddress) {
@@ -285,17 +285,21 @@ async function solanaX402Middleware(
     });
   }
 
-  const routeConfig = solanaRouteConfigs[req.path];
+  // Look up route config using the full path
+  const routeConfig = solanaRouteConfigs[fullPath];
   if (!routeConfig) {
+    console.log('[x402-solana] No route config found for:', fullPath);
     return next();
   }
 
   try {
     // Extract payment header
     const paymentHeader = solanaPaymentHandler.extractPayment(req.headers as Record<string, string | string[] | undefined>);
+    
+    console.log('[x402-solana] Payment header present:', !!paymentHeader);
 
     // Get or create payment requirements (with caching)
-    const cacheKey = req.path;
+    const cacheKey = fullPath;
     let paymentRequirements: PaymentRequirements;
     
     const cached = paymentRequirementsCache[cacheKey];
@@ -355,9 +359,12 @@ async function solanaX402Middleware(
     console.error('[x402-solana] Middleware error:', error);
     
     // On error, return 402 with payment requirements
-    if (solanaPaymentHandler) {
+    const fullPath = req.baseUrl + req.path;
+    const errorRouteConfig = solanaRouteConfigs[fullPath];
+    
+    if (solanaPaymentHandler && errorRouteConfig) {
       try {
-        const paymentRequirements = await solanaPaymentHandler.createPaymentRequirements(routeConfig as any);
+        const paymentRequirements = await solanaPaymentHandler.createPaymentRequirements(errorRouteConfig as any);
         const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
         return res.status(402).json({
           ...response402.body,
@@ -375,7 +382,7 @@ async function solanaX402Middleware(
   }
 }
 
-// Apply Solana x402 middleware to Solana routes
+// Apply Solana x402 middleware to Solana routes (must come BEFORE route handlers)
 app.use('/noLimitLLM/solana', solanaX402Middleware);
 app.use('/noLimitSwap/solana', solanaX402Middleware);
 
