@@ -19,6 +19,23 @@ model User {
   payments     Payment[]
   agentUsages  AgentUsage[]
   swapUsages   SwapUsage[]
+  apiKeys      ApiKey[]
+}
+
+model ApiKey {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  name       String
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  rateLimit  Int      @default(1000)  // Requests per day
+  usageCount Int      @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime?
+  
+  @@index([key])
+  @@index([userId])
 }
 
 model Payment {
