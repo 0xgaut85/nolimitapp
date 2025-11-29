@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { useAppKitAccount } from '@reown/appkit/react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { config } from '@/config';
 
 interface ApiKey {
@@ -21,8 +22,12 @@ export function ApiKeyManager() {
   const { address: evmAddress, isConnected: evmConnected } = useAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   
-  const connectedAddress = evmAddress || solanaAccount.address;
-  const isConnected = evmConnected || solanaAccount.isConnected;
+  // Native Solana wallet adapter (for Phantom, Solflare, etc.)
+  const { publicKey: solanaPublicKey, connected: solanaAdapterConnected } = useWallet();
+  
+  // Prioritize native Solana adapter, then Reown, then EVM
+  const connectedAddress = solanaPublicKey?.toBase58() || evmAddress || solanaAccount.address;
+  const isConnected = solanaAdapterConnected || evmConnected || solanaAccount.isConnected;
 
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(false);

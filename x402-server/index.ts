@@ -996,15 +996,22 @@ async function getJupiterSwapTransaction(
     throw new Error('Invalid swap amount');
   }
   
-  // Step 1: Get Quote from Jupiter
+  // Step 1: Get Quote from Jupiter (with timeout)
   const quoteUrl = `${JUPITER_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-  console.log('[Jupiter] Fetching quote...');
+  console.log('[Jupiter] Fetching quote from:', quoteUrl);
   
   let quoteResponse;
   try {
-    quoteResponse = await fetch(quoteUrl);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    quoteResponse = await fetch(quoteUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
   } catch (fetchError) {
     console.error('[Jupiter] Quote fetch error:', fetchError);
+    if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+      throw new Error('Jupiter API timeout - please try again');
+    }
     throw new Error(`Jupiter API unreachable: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`);
   }
   
@@ -1027,12 +1034,15 @@ async function getJupiterSwapTransaction(
     priceImpactPct: quoteData.priceImpactPct
   });
 
-  // Step 2: Get Swap Transaction
+  // Step 2: Get Swap Transaction (with timeout)
   // Per Jupiter docs: POST /swap with quoteResponse and userPublicKey
   console.log('[Jupiter] Fetching swap transaction...');
   
   let swapResponse;
   try {
+    const swapController = new AbortController();
+    const swapTimeoutId = setTimeout(() => swapController.abort(), 30000); // 30 second timeout
+    
     swapResponse = await fetch(`${JUPITER_API}/swap`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1042,10 +1052,15 @@ async function getJupiterSwapTransaction(
         wrapAndUnwrapSol: true,
         dynamicComputeUnitLimit: true,
         prioritizationFeeLamports: 'auto',
-      })
+      }),
+      signal: swapController.signal,
     });
+    clearTimeout(swapTimeoutId);
   } catch (fetchError) {
     console.error('[Jupiter] Swap fetch error:', fetchError);
+    if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+      throw new Error('Jupiter Swap API timeout - please try again');
+    }
     throw new Error(`Jupiter Swap API unreachable: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`);
   }
 
