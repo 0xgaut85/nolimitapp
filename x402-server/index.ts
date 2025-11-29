@@ -267,30 +267,39 @@ if (solanaMerchantAddress) {
 }
 
 // Solana x402 Payment Middleware (official x402-solana implementation)
+// Reference: https://github.com/PayAINetwork/x402-solana
 async function solanaX402Middleware(
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
 ) {
-  // Get the full path (req.baseUrl + req.path when mounted, or req.originalUrl)
-  const fullPath = req.baseUrl + req.path;
+  // Get the full path - normalize by removing trailing slash
+  // When mounted at /noLimitLLM/solana, req.path is "/" so we get /noLimitLLM/solana/
+  // We need to normalize to /noLimitLLM/solana
+  let fullPath = req.baseUrl + req.path;
+  if (fullPath.endsWith('/') && fullPath.length > 1) {
+    fullPath = fullPath.slice(0, -1);
+  }
   
   console.log('[x402-solana] Middleware called for:', fullPath, 'method:', req.method);
 
   // Check if Solana payments are enabled
   if (!solanaPaymentHandler || !solanaMerchantAddress) {
+    console.log('[x402-solana] Payments not configured - SOLANA_MERCHANT_ADDRESS missing');
     return res.status(503).json({ 
       error: 'Solana payments not configured',
       message: 'Set SOLANA_MERCHANT_ADDRESS to enable Solana x402 payments'
     });
   }
 
-  // Look up route config using the full path
+  // Look up route config using the normalized full path
   const routeConfig = solanaRouteConfigs[fullPath];
   if (!routeConfig) {
-    console.log('[x402-solana] No route config found for:', fullPath);
+    console.log('[x402-solana] No route config found for:', fullPath, 'Available routes:', Object.keys(solanaRouteConfigs));
     return next();
   }
+  
+  console.log('[x402-solana] Found route config, enforcing payment for:', fullPath);
 
   try {
     // Extract payment header
@@ -359,8 +368,11 @@ async function solanaX402Middleware(
     console.error('[x402-solana] Middleware error:', error);
     
     // On error, return 402 with payment requirements
-    const fullPath = req.baseUrl + req.path;
-    const errorRouteConfig = solanaRouteConfigs[fullPath];
+    let errorFullPath = req.baseUrl + req.path;
+    if (errorFullPath.endsWith('/') && errorFullPath.length > 1) {
+      errorFullPath = errorFullPath.slice(0, -1);
+    }
+    const errorRouteConfig = solanaRouteConfigs[errorFullPath];
     
     if (solanaPaymentHandler && errorRouteConfig) {
       try {
