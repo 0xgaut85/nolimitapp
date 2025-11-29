@@ -653,50 +653,74 @@ export function SwapForm() {
         throw new Error(data.error || 'Failed to get swap transaction');
       }
 
+      // Store NL earned from server response for later
+      const earnedNl = data.nlEarned || null;
+      
       if (fromChain === 'Solana') {
-        // Execute Solana swap via Reown or Phantom
+        // Execute Solana swap
         const txBuffer = Buffer.from(data.tx, 'base64');
         const transaction = VersionedTransaction.deserialize(txBuffer);
+        const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
         
-        if (reownSolanaProvider && solanaAccount.isConnected) {
-          // Use Reown's Solana provider
+        let txSignature: string;
+        
+        // PRIORITY 1: Use native Solana wallet adapter (best compatibility)
+        if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
+          console.log('[Swap] Using native Solana wallet adapter');
+          txSignature = await sendSolanaTransaction(transaction, connection);
+          console.log('[Swap] Solana transaction sent via native adapter:', txSignature);
+        } else if (reownSolanaProvider && solanaAccount.isConnected) {
+          // PRIORITY 2: Use Reown's Solana provider
+          console.log('[Swap] Using Reown Solana provider');
           const signedTx = await reownSolanaProvider.signAndSendTransaction(transaction);
-          console.log('[Swap] Solana transaction sent via Reown:', signedTx);
+          txSignature = typeof signedTx === 'string' ? signedTx : (signedTx as any).signature;
+          console.log('[Swap] Solana transaction sent via Reown:', txSignature);
         } else if (phantomProvider) {
-          // Fallback to direct Phantom
+          // PRIORITY 3: Fallback to direct Phantom
+          console.log('[Swap] Using direct Phantom');
           const signedTx = await phantomProvider.signAndSendTransaction(transaction);
-          console.log('[Swap] Solana transaction sent via Phantom:', signedTx);
+          txSignature = signedTx.signature;
+          console.log('[Swap] Solana transaction sent via Phantom:', txSignature);
         } else {
           throw new Error('No Solana wallet provider available');
         }
+        
+        // Wait for confirmation before showing success
+        console.log('[Swap] Waiting for Solana transaction confirmation...');
+        await connection.confirmTransaction(txSignature, 'confirmed');
+        console.log('[Swap] Solana transaction confirmed!');
+        
+        // NOW show success after confirmation
+        setSwapSuccess(true);
+        setNlEarned(earnedNl);
+        setFromAmount('');
+        setToAmount('');
+        
+        // Refresh Solana balances
+        const solAddress = effectiveSolanaAddress || solanaAddress;
+        if (solAddress) {
+          try {
+            await fetchSolanaBalances(new PublicKey(solAddress));
+          } catch (e) {
+            console.error('[Swap] Failed to refresh Solana balances:', e);
+          }
+        }
       } else if (fromChain === 'Base' && data.tx) {
         // Execute Base swap via wagmi
+        // Note: For Base, wagmi handles the transaction confirmation via useWaitForTransactionReceipt
         sendTransaction({
           to: data.tx.to as Address,
           data: data.tx.data as `0x${string}`,
           value: BigInt(data.tx.value || '0'),
         });
+        
+        // For Base, show success after sending (wagmi hooks will update on confirmation)
+        // The actual confirmation is handled by useWaitForTransactionReceipt if needed
+        setSwapSuccess(true);
+        setNlEarned(earnedNl);
+        setFromAmount('');
+        setToAmount('');
       }
-
-      setSwapSuccess(true);
-      setNlEarned(data.nlEarned || null);
-      setFromAmount('');
-      setToAmount('');
-      
-      // Refresh balances after successful swap (with delay to allow chain to update)
-      setTimeout(async () => {
-        if (fromChain === 'Solana') {
-          const solAddress = effectiveSolanaAddress || solanaAddress;
-          if (solAddress) {
-            try {
-              await fetchSolanaBalances(new PublicKey(solAddress));
-            } catch (e) {
-              console.error('[Swap] Failed to refresh Solana balances:', e);
-            }
-          }
-        }
-        // Base balances are automatically refreshed by wagmi hooks
-      }, 3000);
     } catch (error) {
       console.error('[Swap] Error:', error);
       setSwapError(error instanceof Error ? error.message : 'Swap failed');
