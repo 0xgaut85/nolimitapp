@@ -589,16 +589,23 @@ async function getJupiterSwapTransaction(
   amount: string,
   slippageBps = 50,
 ): Promise<SwapResult> {
-  // Jupiter API v6 - Updated endpoints (api.jup.ag replaces quote-api.jup.ag)
+  // Jupiter Public API v6
   // Reference: https://station.jup.ag/docs/apis/swap-api
+  // Using the public quote-api endpoint (no API key required)
   
   // 1. Get Quote
-  const quoteUrl = `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  const quoteUrl = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
   console.log('[Jupiter] Getting quote from:', quoteUrl);
   
   const quoteResponse = await fetch(quoteUrl);
-  const quoteData = await quoteResponse.json();
   
+  if (!quoteResponse.ok) {
+    const errorText = await quoteResponse.text();
+    console.error('[Jupiter] Quote request failed:', quoteResponse.status, errorText);
+    throw new Error(`Jupiter Quote Error: ${quoteResponse.status} - ${errorText}`);
+  }
+  
+  const quoteData = await quoteResponse.json();
   console.log('[Jupiter] Quote response status:', quoteResponse.status);
 
   if (!quoteData || quoteData.error) {
@@ -610,7 +617,7 @@ async function getJupiterSwapTransaction(
 
   // 2. Get Swap Transaction
   console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
-  const swapResponse = await fetch('https://api.jup.ag/swap/v1/swap', {
+  const swapResponse = await fetch('https://quote-api.jup.ag/v6/swap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -619,6 +626,12 @@ async function getJupiterSwapTransaction(
       wrapAndUnwrapSol: true,
     })
   });
+
+  if (!swapResponse.ok) {
+    const errorText = await swapResponse.text();
+    console.error('[Jupiter] Swap request failed:', swapResponse.status, errorText);
+    throw new Error(`Jupiter Swap Error: ${swapResponse.status} - ${errorText}`);
+  }
 
   const swapData = await swapResponse.json();
   console.log('[Jupiter] Swap response status:', swapResponse.status);
