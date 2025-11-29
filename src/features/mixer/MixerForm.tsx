@@ -182,11 +182,18 @@ export function MixerForm() {
   const solanaX402Client = useMemo((): X402Client | null => {
     if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
       try {
+        // Create wallet adapter compatible with x402-solana
         const walletAdapter = {
           address: solanaAccount.address,
+          publicKey: new PublicKey(solanaAccount.address),
           signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
-            const signedTx = await reownSolanaProvider.signTransaction(tx);
-            return signedTx as VersionedTransaction;
+            try {
+              const signedTx = await reownSolanaProvider.signTransaction(tx);
+              return signedTx as VersionedTransaction;
+            } catch (signError) {
+              console.error('[Mixer] Transaction signing failed:', signError);
+              throw signError;
+            }
           },
         };
         
@@ -363,11 +370,20 @@ export function MixerForm() {
       let createResponse: Response;
       
       if (chain === 'Solana' && solanaX402Client) {
-        createResponse = await solanaX402Client.fetch(apiPath, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: requestBody,
-        });
+        try {
+          createResponse = await solanaX402Client.fetch(apiPath, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: requestBody,
+          });
+        } catch (solanaPaymentError) {
+          console.error('[Mixer] Solana x402 payment error:', solanaPaymentError);
+          // If x402 payment fails, provide clear error message
+          if (solanaPaymentError instanceof Error && solanaPaymentError.message.includes('WalletAccountError')) {
+            throw new Error('Wallet connection error. Please reconnect your Solana wallet and try again.');
+          }
+          throw solanaPaymentError;
+        }
       } else if (fetchWithPayment) {
         createResponse = await fetchWithPayment(apiPath, {
           method: 'POST',
@@ -638,11 +654,11 @@ export function MixerForm() {
 
             {/* Amount Input */}
             <div>
-              <div className="flex justify-between items-center mb-2">
+              <div className="flex justify-between items-center mb-2 overflow-hidden">
                 <label className="text-xs font-mono text-white/60 uppercase tracking-wider">
                   Amount
                 </label>
-                <span className="text-xs font-mono text-white/50">
+                <span className="text-xs font-mono text-white/50 whitespace-nowrap overflow-hidden">
                   Balance: {parseFloat(getCurrentBalance()).toFixed(4)} {token}
                 </span>
               </div>

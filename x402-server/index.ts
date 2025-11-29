@@ -973,61 +973,93 @@ async function getJupiterSwapTransaction(
   amount: string,
   slippageBps = 50,
 ): Promise<SwapResult> {
-  // Jupiter V6 API (public, no API key required)
-  // Reference: https://station.jup.ag/docs/apis/swap-api
-  // Using quote-api for quotes and the swap endpoint for transactions
+  // Jupiter V6 API - Official documentation: https://station.jup.ag/docs/apis/swap-api
+  // Using the public quote-api endpoint (no API key required)
   
-  const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6';
+  const JUPITER_API = 'https://quote-api.jup.ag/v6';
   
-  // 1. Get Quote
-  const quoteUrl = `${JUPITER_QUOTE_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
-  console.log('[Jupiter] Getting quote from:', quoteUrl);
+  console.log('[Jupiter] Starting swap request:', { 
+    userPublicKey: userPublicKey?.slice(0, 10), 
+    inputMint: inputMint?.slice(0, 10), 
+    outputMint: outputMint?.slice(0, 10),
+    amount 
+  });
+
+  // Validate inputs
+  if (!userPublicKey || userPublicKey.length < 32) {
+    throw new Error('Invalid Solana wallet address');
+  }
+  if (!inputMint || !outputMint) {
+    throw new Error('Invalid token mint addresses');
+  }
+  if (!amount || isNaN(Number(amount))) {
+    throw new Error('Invalid swap amount');
+  }
   
-  const quoteResponse = await fetch(quoteUrl);
+  // Step 1: Get Quote from Jupiter
+  const quoteUrl = `${JUPITER_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  console.log('[Jupiter] Fetching quote...');
+  
+  let quoteResponse;
+  try {
+    quoteResponse = await fetch(quoteUrl);
+  } catch (fetchError) {
+    console.error('[Jupiter] Quote fetch error:', fetchError);
+    throw new Error(`Jupiter API unreachable: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`);
+  }
   
   if (!quoteResponse.ok) {
     const errorText = await quoteResponse.text();
-    console.error('[Jupiter] Quote request failed:', quoteResponse.status, errorText);
+    console.error('[Jupiter] Quote failed:', quoteResponse.status, errorText);
     throw new Error(`Jupiter Quote Error: ${quoteResponse.status} - ${errorText}`);
   }
   
   const quoteData = await quoteResponse.json();
-  console.log('[Jupiter] Quote response status:', quoteResponse.status);
 
   if (!quoteData || quoteData.error) {
-    console.error('[Jupiter] Quote error:', quoteData);
-    throw new Error(`Jupiter Quote Error: ${quoteData.error || JSON.stringify(quoteData) || 'Unknown error'}`);
+    console.error('[Jupiter] Quote data error:', quoteData);
+    throw new Error(`Jupiter Quote Error: ${quoteData?.error || 'No quote returned'}`);
   }
   
-  console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
-
-  // 2. Get Swap Transaction
-  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
-  
-  const swapResponse = await fetch(`${JUPITER_QUOTE_API}/swap`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      quoteResponse: quoteData,
-      userPublicKey,
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: 'auto',
-    })
+  console.log('[Jupiter] Quote received:', { 
+    inAmount: quoteData.inAmount, 
+    outAmount: quoteData.outAmount,
+    priceImpactPct: quoteData.priceImpactPct
   });
+
+  // Step 2: Get Swap Transaction
+  // Per Jupiter docs: POST /swap with quoteResponse and userPublicKey
+  console.log('[Jupiter] Fetching swap transaction...');
+  
+  let swapResponse;
+  try {
+    swapResponse = await fetch(`${JUPITER_API}/swap`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteResponse: quoteData,
+        userPublicKey,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
+        prioritizationFeeLamports: 'auto',
+      })
+    });
+  } catch (fetchError) {
+    console.error('[Jupiter] Swap fetch error:', fetchError);
+    throw new Error(`Jupiter Swap API unreachable: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`);
+  }
 
   if (!swapResponse.ok) {
     const errorText = await swapResponse.text();
-    console.error('[Jupiter] Swap request failed:', swapResponse.status, errorText);
+    console.error('[Jupiter] Swap failed:', swapResponse.status, errorText);
     throw new Error(`Jupiter Swap Error: ${swapResponse.status} - ${errorText}`);
   }
 
   const swapData = await swapResponse.json();
-  console.log('[Jupiter] Swap response status:', swapResponse.status);
   
   if (!swapData || !swapData.swapTransaction) {
-    console.error('[Jupiter] Swap error:', swapData);
-    throw new Error(`Failed to generate Jupiter swap transaction: ${JSON.stringify(swapData)}`);
+    console.error('[Jupiter] No swap transaction:', swapData);
+    throw new Error(`Jupiter returned no transaction: ${JSON.stringify(swapData)}`);
   }
   
   console.log('[Jupiter] Swap transaction generated successfully');
@@ -1054,7 +1086,9 @@ async function get1inchSwapTransaction(
   }
 
   const chainId = 8453; // Base
-  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true`;
+  // Per 1inch API v6 docs: https://portal.1inch.dev/documentation/swap/swagger
+  // Use includeTokensInfo and includeProtocols for better swap data
+  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&includeTokensInfo=true&includeProtocols=true`;
 
   console.log('[1inch] Request URL:', url.replace(ONEINCH_API_KEY || '', '***'));
   console.log('[1inch] Getting swap for user:', userAddress?.slice(0, 10));

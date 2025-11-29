@@ -17,17 +17,17 @@ type Overview = {
   totalRevenue: string;
   agentRevenue: string;
   swapRevenue: string;
-  mixerRevenue: string;
+  mixerRevenue?: string;
   baseRevenue: string;
   solanaRevenue: string;
   agentMessages: number;
   swapCount: number;
-  mixerCount: number;
+  mixerCount?: number;
 };
 
 type ChartData = {
   revenue: { date: string; revenue: number }[];
-  usage: { date: string; agent: number; swap: number; mixer: number }[];
+  usage: { date: string; agent: number; swap: number; mixer?: number }[];
 };
 
 type Transaction = {
@@ -181,11 +181,11 @@ export function Dashboard() {
           >
             {/* Header Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-              <StatCard title="TOTAL_USERS" value={stats.overview.totalUsers.toString()} subtitle={`+${stats.overview.newUsersToday} today`} />
-              <StatCard title="TOTAL_REVENUE" value={`$${stats.overview.totalRevenue}`} subtitle="USDC" />
-              <StatCard title="AGENT_MESSAGES" value={stats.overview.agentMessages.toString()} subtitle={`$${stats.overview.agentRevenue} revenue`} />
-              <StatCard title="TOTAL_SWAPS" value={stats.overview.swapCount.toString()} subtitle={`$${stats.overview.swapRevenue} revenue`} />
-              <StatCard title="MIXER_TXS" value={stats.overview.mixerCount.toString()} subtitle={`$${stats.overview.mixerRevenue} revenue`} />
+              <StatCard title="TOTAL_USERS" value={(stats.overview.totalUsers ?? 0).toString()} subtitle={`+${stats.overview.newUsersToday ?? 0} today`} />
+              <StatCard title="TOTAL_REVENUE" value={`$${stats.overview.totalRevenue ?? '0.00'}`} subtitle="USDC" />
+              <StatCard title="AGENT_MESSAGES" value={(stats.overview.agentMessages ?? 0).toString()} subtitle={`$${stats.overview.agentRevenue ?? '0.00'} revenue`} />
+              <StatCard title="TOTAL_SWAPS" value={(stats.overview.swapCount ?? 0).toString()} subtitle={`$${stats.overview.swapRevenue ?? '0.00'} revenue`} />
+              <StatCard title="MIXER_TXS" value={(stats.overview.mixerCount ?? 0).toString()} subtitle={`$${stats.overview.mixerRevenue ?? '0.00'} revenue`} />
             </div>
 
             {/* Revenue Breakdown */}

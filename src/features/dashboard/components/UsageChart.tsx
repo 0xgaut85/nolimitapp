@@ -6,7 +6,7 @@ type UsageData = {
   date: string;
   agent: number;
   swap: number;
-  mixer: number;
+  mixer?: number;
 };
 
 export function UsageChart({ data }: { data: UsageData[] }) {
