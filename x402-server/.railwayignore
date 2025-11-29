@@ -1,0 +1,5 @@
+# Ignore build artifacts
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+dist/
+

@@ -2,10 +2,13 @@
 nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["npm install"]
 
 [phases.build]
 cmds = ["npx prisma generate"]
 
 [start]
 cmd = "npx prisma migrate deploy && npm start"
+
+# Disable caching to avoid EBUSY errors
+[caches]
