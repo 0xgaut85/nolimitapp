@@ -218,6 +218,7 @@ app.use(paymentMiddleware(
 let solanaPaymentHandler: X402PaymentHandler | null = null;
 
 // Solana route configuration type (compatible with x402-solana RouteConfig)
+// Enhanced with fields required by x402scan
 interface SolanaRouteConfig {
   price: {
     amount: string;
@@ -229,11 +230,16 @@ interface SolanaRouteConfig {
     mimeType: string;
     discoverable: boolean;
     resource: string;
+    name?: string;
+    logo?: string;
+    category?: string;
+    inputSchema?: object;
+    outputSchema?: object;
   };
   priceUsd: number;
 }
 
-// Solana route configurations
+// Solana route configurations (with x402scan-compatible metadata)
 const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
   '/noLimitLLM/solana': {
     price: {
@@ -246,6 +252,23 @@ const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
       mimeType: 'application/json',
       discoverable: true,
       resource: `${serverPublicUrl}/noLimitLLM/solana`,
+      name: 'noLimit LLM',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'AI',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'The message to send to the AI' },
+          userAddress: { type: 'string', description: 'User wallet address' },
+        },
+        required: ['message', 'userAddress'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          response: { type: 'string', description: 'AI response message' },
+        },
+      },
     },
     priceUsd: 0.05,
   },
@@ -260,6 +283,27 @@ const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
       mimeType: 'application/json',
       discoverable: true,
       resource: `${serverPublicUrl}/noLimitSwap/solana`,
+      name: 'noLimit Swap',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Trading',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          fromToken: { type: 'string', description: 'Token to swap from' },
+          toToken: { type: 'string', description: 'Token to swap to' },
+          amount: { type: 'string', description: 'Amount in smallest unit' },
+          userAddress: { type: 'string', description: 'User wallet address' },
+        },
+        required: ['fromToken', 'toToken', 'amount', 'userAddress'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          tx: { type: 'string', description: 'Serialized transaction' },
+          quote: { type: 'object' },
+        },
+      },
     },
     priceUsd: 0.10,
   },
@@ -343,7 +387,23 @@ async function solanaX402Middleware(
     // If no payment header, return 402 Payment Required
     if (!paymentHeader) {
       const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
-      return res.status(402).json(response402.body);
+      
+      // Enhance payment requirements with x402scan-compatible fields
+      const enhancedAccepts = response402.body.accepts.map((req: any) => ({
+        ...req,
+        // Add enhanced fields for x402scan compatibility
+        name: routeConfig.config.name,
+        logo: routeConfig.config.logo,
+        category: routeConfig.config.category,
+        inputSchema: routeConfig.config.inputSchema,
+        // Ensure outputSchema is present
+        outputSchema: req.outputSchema || routeConfig.config.outputSchema || {},
+      }));
+      
+      return res.status(402).json({
+        ...response402.body,
+        accepts: enhancedAccepts,
+      });
     }
 
     // Verify payment with facilitator
