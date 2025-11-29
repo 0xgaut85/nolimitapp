@@ -14,15 +14,17 @@ import type { Provider } from '@reown/appkit-adapter-solana/react';
 import { config } from '@/config';
 
 type ChainName = 'Base' | 'Solana';
-type TokenSymbol = 'ETH' | 'SOL' | 'USDC';
+type TokenSymbol = 'ETH' | 'SOL' | 'USDC' | 'USDT';
 type MixStatus = 'idle' | 'creating' | 'awaiting_deposit' | 'depositing' | 'mixing' | 'completed' | 'failed';
 
 const TOKEN_ADDRESSES = {
   Base: {
     USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
   },
   Solana: {
     USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
   },
 };
 
@@ -68,6 +70,7 @@ export function MixerForm() {
   // Balance states
   const [solanaBalance, setSolanaBalance] = useState('0.0000');
   const [solanaUsdcBalance, setSolanaUsdcBalance] = useState('0.0000');
+  const [solanaUsdtBalance, setSolanaUsdtBalance] = useState('0.0000');
 
   // Base balances
   const { data: baseEthBalance } = useBalance({
@@ -85,6 +88,15 @@ export function MixerForm() {
     query: { enabled: Boolean(evmAddress && TOKEN_ADDRESSES.Base.USDC) },
   });
 
+  const { data: baseUsdtRaw } = useReadContract({
+    abi: erc20Abi,
+    address: TOKEN_ADDRESSES.Base.USDT as Address,
+    functionName: 'balanceOf',
+    args: evmAddress ? [evmAddress] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(evmAddress && TOKEN_ADDRESSES.Base.USDT) },
+  });
+
   // Fetch Solana balances
   const fetchSolanaBalances = useCallback(async (publicKey: PublicKey) => {
     try {
@@ -97,14 +109,19 @@ export function MixerForm() {
       });
 
       let usdc = '0.0000';
+      let usdt = '0.0000';
       tokenAccounts.value.forEach((account: any) => {
         const mint = account.account.data.parsed.info.mint;
         const uiAmount = account.account.data.parsed.info.tokenAmount.uiAmount ?? 0;
         if (mint === TOKEN_ADDRESSES.Solana.USDC) {
           usdc = uiAmount.toFixed(4);
         }
+        if (mint === TOKEN_ADDRESSES.Solana.USDT) {
+          usdt = uiAmount.toFixed(4);
+        }
       });
       setSolanaUsdcBalance(usdc);
+      setSolanaUsdtBalance(usdt);
     } catch (err) {
       console.error('[Mixer] Failed to fetch Solana balances:', err);
     }
@@ -124,16 +141,20 @@ export function MixerForm() {
         return baseEthBalance ? formatUnits(baseEthBalance.value, 18) : '0.0000';
       } else if (token === 'USDC') {
         return baseUsdcRaw ? formatUnits(baseUsdcRaw as bigint, 6) : '0.0000';
+      } else if (token === 'USDT') {
+        return baseUsdtRaw ? formatUnits(baseUsdtRaw as bigint, 6) : '0.0000';
       }
     } else {
       if (token === 'SOL') {
         return solanaBalance;
       } else if (token === 'USDC') {
         return solanaUsdcBalance;
+      } else if (token === 'USDT') {
+        return solanaUsdtBalance;
       }
     }
     return '0.0000';
-  }, [chain, token, baseEthBalance, baseUsdcRaw, solanaBalance, solanaUsdcBalance]);
+  }, [chain, token, baseEthBalance, baseUsdcRaw, baseUsdtRaw, solanaBalance, solanaUsdcBalance, solanaUsdtBalance]);
 
   // x402 wallet client for Base
   const { data: walletClient } = useWalletClient();
@@ -190,7 +211,7 @@ export function MixerForm() {
   const isConnected = chain === 'Base' ? evmConnected : solanaAccount.isConnected;
 
   // Available tokens per chain
-  const availableTokens: TokenSymbol[] = chain === 'Base' ? ['ETH', 'USDC'] : ['SOL', 'USDC'];
+  const availableTokens: TokenSymbol[] = chain === 'Base' ? ['ETH', 'USDC', 'USDT'] : ['SOL', 'USDC', 'USDT'];
 
   // Convert delay to minutes
   const delayMinutes = {

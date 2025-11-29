@@ -973,14 +973,14 @@ async function getJupiterSwapTransaction(
   amount: string,
   slippageBps = 50,
 ): Promise<SwapResult> {
-  // Jupiter Lite API (public, no API key required)
-  // Reference: https://dev.jup.ag/api-reference/swap/swap
-  // Endpoints: lite-api.jup.ag (public) | api.jup.ag (requires API key)
+  // Jupiter V6 API (public, no API key required)
+  // Reference: https://station.jup.ag/docs/apis/swap-api
+  // Using quote-api for quotes and the swap endpoint for transactions
   
-  const JUPITER_API_BASE = 'https://lite-api.jup.ag/swap/v1';
+  const JUPITER_QUOTE_API = 'https://quote-api.jup.ag/v6';
   
   // 1. Get Quote
-  const quoteUrl = `${JUPITER_API_BASE}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  const quoteUrl = `${JUPITER_QUOTE_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
   console.log('[Jupiter] Getting quote from:', quoteUrl);
   
   const quoteResponse = await fetch(quoteUrl);
@@ -1004,7 +1004,7 @@ async function getJupiterSwapTransaction(
   // 2. Get Swap Transaction
   console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
   
-  const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
+  const swapResponse = await fetch(`${JUPITER_QUOTE_API}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1012,12 +1012,7 @@ async function getJupiterSwapTransaction(
       userPublicKey,
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: {
-        priorityLevelWithMaxLamports: {
-          maxLamports: 10000000,
-          priorityLevel: 'veryHigh'
-        }
-      }
+      prioritizationFeeLamports: 'auto',
     })
   });
 

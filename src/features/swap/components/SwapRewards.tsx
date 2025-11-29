@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useAppKitAccount } from '@reown/appkit/react';
 
 interface PrivacyToggleProps {
   label: string;
@@ -13,7 +14,11 @@ interface PrivacyToggleProps {
 }
 
 export function SwapRewards() {
-  const { isConnected } = useAccount();
+  const { isConnected: evmConnected } = useAccount();
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  
+  // Check if any wallet is connected (EVM or Solana)
+  const isConnected = evmConnected || solanaAccount.isConnected;
 
   const [useRelayer, setUseRelayer] = useState(true);
   const [stealthAddresses, setStealthAddresses] = useState(false);
@@ -95,6 +100,15 @@ export function SwapRewards() {
                 Earn <span className="text-[#b8d1b3] font-bold">$NL tokens</span> with every swap or bridge transaction. Higher
                 volumes unlock boosted multipliers and retroactive drops.
               </p>
+            </div>
+            <div className="mt-3 p-3 bg-[#b8d1b3]/10 border border-[#b8d1b3]/30 rounded-xl">
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-[#b8d1b3]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs font-mono text-[#b8d1b3] font-bold">$NL claims opening soon</p>
+              </div>
+              <p className="text-[10px] font-mono text-white/40 mt-1 ml-6">Your rewards are being tracked and will be claimable at TGE</p>
             </div>
           </div>
         ) : (

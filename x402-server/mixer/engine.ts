@@ -4,7 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { Wallet, JsonRpcProvider, parseEther, formatEther } from 'ethers';
+import { Wallet, JsonRpcProvider, parseEther, formatEther, Contract, parseUnits } from 'ethers';
 import { 
   Connection, 
   PublicKey, 
@@ -13,7 +13,32 @@ import {
   LAMPORTS_PER_SOL,
   sendAndConfirmTransaction
 } from '@solana/web3.js';
+import { 
+  getAssociatedTokenAddress, 
+  createTransferInstruction, 
+  TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountInstruction,
+  getAccount
+} from '@solana/spl-token';
 import { walletPool, generateHopPath, getRandomHopDelay } from './wallets';
+
+// ERC20 ABI for token transfers
+const ERC20_ABI = [
+  'function transfer(address to, uint256 amount) returns (bool)',
+  'function balanceOf(address account) view returns (uint256)',
+];
+
+// Token addresses
+const TOKEN_ADDRESSES = {
+  base: {
+    USDC: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    USDT: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+  },
+  solana: {
+    USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  },
+};
 
 const prisma = new PrismaClient();
 
@@ -240,9 +265,19 @@ async function executeBaseTransfer(
     });
     await tx.wait();
     return tx.hash;
+  } else if (token === 'USDC' || token === 'USDT') {
+    // ERC20 token transfer
+    const tokenAddress = token === 'USDC' ? TOKEN_ADDRESSES.base.USDC : TOKEN_ADDRESSES.base.USDT;
+    const tokenContract = new Contract(tokenAddress, ERC20_ABI, wallet.wallet);
+    
+    // USDC and USDT have 6 decimals
+    const tokenAmount = parseUnits(amount, 6);
+    
+    const tx = await tokenContract.transfer(toAddress, tokenAmount);
+    await tx.wait();
+    return tx.hash;
   } else {
-    // TODO: Implement ERC20 transfer for USDC
-    throw new Error('USDC mixing not yet implemented for Base');
+    throw new Error(`Unsupported token for Base mixer: ${token}`);
   }
 }
 
@@ -277,9 +312,57 @@ async function executeSolanaTransfer(
     );
     
     return signature;
+  } else if (token === 'USDC' || token === 'USDT') {
+    // SPL token transfer
+    const mintAddress = token === 'USDC' 
+      ? new PublicKey(TOKEN_ADDRESSES.solana.USDC) 
+      : new PublicKey(TOKEN_ADDRESSES.solana.USDT);
+    
+    // Get associated token accounts
+    const fromAta = await getAssociatedTokenAddress(mintAddress, wallet.keypair.publicKey);
+    const toAta = await getAssociatedTokenAddress(mintAddress, toPubkey);
+    
+    // USDC and USDT have 6 decimals
+    const tokenAmount = Math.floor(parseFloat(amount) * 1_000_000);
+    
+    const transaction = new Transaction();
+    
+    // Check if destination ATA exists, if not create it
+    try {
+      await getAccount(solanaConnection, toAta);
+    } catch {
+      // ATA doesn't exist, create it
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          wallet.keypair.publicKey, // payer
+          toAta, // associated token account
+          toPubkey, // owner
+          mintAddress // mint
+        )
+      );
+    }
+    
+    // Add transfer instruction
+    transaction.add(
+      createTransferInstruction(
+        fromAta,
+        toAta,
+        wallet.keypair.publicKey,
+        tokenAmount,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+    );
+
+    const signature = await sendAndConfirmTransaction(
+      solanaConnection,
+      transaction,
+      [wallet.keypair]
+    );
+    
+    return signature;
   } else {
-    // TODO: Implement SPL token transfer for USDC
-    throw new Error('USDC mixing not yet implemented for Solana');
+    throw new Error(`Unsupported token for Solana mixer: ${token}`);
   }
 }
 
