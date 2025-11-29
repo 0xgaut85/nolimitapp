@@ -2,12 +2,16 @@
  * NoLimit x402 Express Server
  * Payment gateway for AI Agent and Swap services
  * Using Venice AI for uncensored LLM
+ * 
+ * Base (EVM): Uses x402-express middleware
+ * Solana: Uses official x402-solana from PayAI Network
  */
 
 import { config } from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import { paymentMiddleware, Resource } from 'x402-express';
+import { X402PaymentHandler, PaymentRequirements } from 'x402-solana/server';
 import { PrismaClient } from '@prisma/client';
 
 config();
@@ -130,7 +134,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// Facilitator config
+// Facilitator config for Base (EVM)
 const facilitatorConfig: Parameters<typeof paymentMiddleware>[2] = {
   url: facilitatorUrl,
 };
@@ -150,9 +154,14 @@ if (cdpApiKeyId && cdpApiKeySecret) {
 
 // Solana merchant address (base58 format) - required for Solana x402 payments
 const solanaMerchantAddress = process.env.SOLANA_MERCHANT_ADDRESS;
+const solanaRpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
+
+// USDC Mint addresses
+const USDC_MINT_MAINNET = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 // --- BASE (EVM) Payment Resources ---
-const basePaymentResources: Parameters<typeof paymentMiddleware>[1] = {
+// Note: Using type assertion to preserve existing config structure (Base is working, don't touch)
+const basePaymentResources = {
   'POST /noLimitLLM': {
     price: '$0.05',
     network: 'base',
@@ -179,56 +188,196 @@ const basePaymentResources: Parameters<typeof paymentMiddleware>[1] = {
       category: 'Trading',
     },
   },
-};
+} as Parameters<typeof paymentMiddleware>[1];
 
-// --- SOLANA Payment Resources ---
-const solanaPaymentResources: Parameters<typeof paymentMiddleware>[1] = {
-  'POST /noLimitLLM/solana': {
-    price: '$0.05',
-    network: 'solana',
-    config: {
-      description: 'Uncensored AI conversations with complete privacy and zero data retention',
-      mimeType: 'application/json',
-      discoverable: true,
-      resource: `${serverPublicUrl}/noLimitLLM/solana`,
-      name: 'noLimit LLM (Solana)',
-      logo: 'https://nolimit.foundation/illustration/logox.jpg',
-      category: 'AI',
-    },
-  },
-  'POST /noLimitSwap/solana': {
-    price: '$0.10',
-    network: 'solana',
-    config: {
-      description: 'Privacy-focused decentralized exchange with optimal swap execution',
-      mimeType: 'application/json',
-      discoverable: true,
-      resource: `${serverPublicUrl}/noLimitSwap/solana`,
-      name: 'noLimit Swap (Solana)',
-      logo: 'https://nolimit.foundation/illustration/logox.jpg',
-      category: 'Trading',
-    },
-  },
-};
-
-// Payment middleware for Base (EVM)
+// Payment middleware for Base (EVM) - UNCHANGED
 app.use(paymentMiddleware(
   payTo,
   basePaymentResources,
   facilitatorConfig,
 ));
 
-// Payment middleware for Solana (separate instance with Solana address)
+// --- SOLANA x402 Payment Handler (using official x402-solana from PayAI) ---
+let solanaPaymentHandler: X402PaymentHandler | null = null;
+
+// Solana route configuration type (compatible with x402-solana RouteConfig)
+interface SolanaRouteConfig {
+  price: {
+    amount: string;
+    asset: { address: string; decimals: number };
+  };
+  network: 'solana' | 'solana-devnet';
+  config: {
+    description: string;
+    mimeType: string;
+    discoverable: boolean;
+    resource: string;
+  };
+  priceUsd: number;
+}
+
+// Solana route configurations
+const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
+  '/noLimitLLM/solana': {
+    price: {
+      amount: '50000', // $0.05 USDC (6 decimals)
+      asset: { address: USDC_MINT_MAINNET, decimals: 6 },
+    },
+    network: 'solana',
+    config: {
+      description: 'Uncensored AI conversations with complete privacy and zero data retention',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitLLM/solana`,
+    },
+    priceUsd: 0.05,
+  },
+  '/noLimitSwap/solana': {
+    price: {
+      amount: '100000', // $0.10 USDC (6 decimals)
+      asset: { address: USDC_MINT_MAINNET, decimals: 6 },
+    },
+    network: 'solana',
+    config: {
+      description: 'Privacy-focused decentralized exchange with optimal swap execution',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitSwap/solana`,
+    },
+    priceUsd: 0.10,
+  },
+};
+
+// Cache for payment requirements (to avoid repeated facilitator calls)
+const paymentRequirementsCache: Record<string, { requirements: PaymentRequirements; timestamp: number }> = {};
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 if (solanaMerchantAddress) {
-  console.log('[x402-server] Solana payments enabled with address:', solanaMerchantAddress);
-  app.use(paymentMiddleware(
-    solanaMerchantAddress,
-    solanaPaymentResources,
-    facilitatorConfig,
-  ));
+  // Initialize x402-solana payment handler
+  solanaPaymentHandler = new X402PaymentHandler({
+    network: 'solana',
+    treasuryAddress: solanaMerchantAddress,
+    facilitatorUrl: facilitatorUrl as string,
+    rpcUrl: solanaRpcUrl,
+  });
+  console.log('[x402-server] Solana x402 payments enabled with PayAI x402-solana');
+  console.log('[x402-server] Treasury address:', solanaMerchantAddress);
 } else {
   console.log('[x402-server] Solana payments disabled - set SOLANA_MERCHANT_ADDRESS to enable');
 }
+
+// Solana x402 Payment Middleware (official x402-solana implementation)
+async function solanaX402Middleware(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  // Only handle Solana routes
+  if (!req.path.endsWith('/solana')) {
+    return next();
+  }
+
+  // Check if Solana payments are enabled
+  if (!solanaPaymentHandler || !solanaMerchantAddress) {
+    return res.status(503).json({ 
+      error: 'Solana payments not configured',
+      message: 'Set SOLANA_MERCHANT_ADDRESS to enable Solana x402 payments'
+    });
+  }
+
+  const routeConfig = solanaRouteConfigs[req.path];
+  if (!routeConfig) {
+    return next();
+  }
+
+  try {
+    // Extract payment header
+    const paymentHeader = solanaPaymentHandler.extractPayment(req.headers as Record<string, string | string[] | undefined>);
+
+    // Get or create payment requirements (with caching)
+    const cacheKey = req.path;
+    let paymentRequirements: PaymentRequirements;
+    
+    const cached = paymentRequirementsCache[cacheKey];
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      paymentRequirements = cached.requirements;
+    } else {
+      // Cast to any to bypass strict type checking - x402-solana is flexible with config
+      paymentRequirements = await solanaPaymentHandler.createPaymentRequirements(routeConfig as any);
+      paymentRequirementsCache[cacheKey] = {
+        requirements: paymentRequirements,
+        timestamp: Date.now(),
+      };
+    }
+
+    // If no payment header, return 402 Payment Required
+    if (!paymentHeader) {
+      const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
+      return res.status(402).json(response402.body);
+    }
+
+    // Verify payment with facilitator
+    const verifyResult = await solanaPaymentHandler.verifyPayment(paymentHeader, paymentRequirements);
+    
+    if (!verifyResult.isValid) {
+      console.error('[x402-solana] Payment verification failed:', verifyResult.invalidReason);
+      const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
+      return res.status(402).json({
+        ...response402.body,
+        error: verifyResult.invalidReason || 'Payment verification failed',
+      });
+    }
+
+    // Settle payment with facilitator
+    const settleResult = await solanaPaymentHandler.settlePayment(paymentHeader, paymentRequirements);
+    
+    if (!settleResult.success) {
+      console.error('[x402-solana] Payment settlement failed:', settleResult.errorReason);
+      return res.status(500).json({
+        error: 'Payment settlement failed',
+        reason: settleResult.errorReason,
+      });
+    }
+
+    console.log('[x402-solana] Payment verified and settled for:', req.path);
+    
+    // Payment successful - proceed to handler
+    // Store payment info for the handler to use
+    (req as any).x402Payment = {
+      verified: true,
+      settled: true,
+      amount: routeConfig.price,
+      network: 'solana',
+    };
+    
+    next();
+  } catch (error) {
+    console.error('[x402-solana] Middleware error:', error);
+    
+    // On error, return 402 with payment requirements
+    if (solanaPaymentHandler) {
+      try {
+        const paymentRequirements = await solanaPaymentHandler.createPaymentRequirements(routeConfig as any);
+        const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
+        return res.status(402).json({
+          ...response402.body,
+          error: error instanceof Error ? error.message : 'Payment processing error',
+        });
+      } catch (innerError) {
+        console.error('[x402-solana] Failed to create 402 response:', innerError);
+      }
+    }
+    
+    return res.status(500).json({
+      error: 'Payment processing error',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+// Apply Solana x402 middleware to Solana routes
+app.use('/noLimitLLM/solana', solanaX402Middleware);
+app.use('/noLimitSwap/solana', solanaX402Middleware);
 
 // Helper: Get or create user
 async function getOrCreateUser(address: string) {
@@ -538,7 +687,6 @@ async function handleSwapRequest(
 
     res.json({
       success: true,
-      chain: normalizedChain,
       ...swapResult,
     });
   } catch (error) {

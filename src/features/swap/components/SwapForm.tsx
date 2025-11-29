@@ -9,6 +9,8 @@ import { useAppKit } from '@reown/appkit/react';
 import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
 import { wrapFetchWithPayment } from 'x402-fetch';
+import { createX402Client, X402Client } from 'x402-solana/client';
+import { config } from '@/config';
 
 type PhantomProvider = {
   publicKey?: PublicKey;
@@ -379,6 +381,7 @@ export function SwapForm() {
   const { sendTransaction } = useSendTransaction();
   const { data: walletClient } = useWalletClient();
 
+  // x402-fetch for Base (EVM) payments - UNCHANGED
   const fetchWithPayment = useMemo(() => {
     if (!walletClient) return null;
     try {
@@ -393,11 +396,67 @@ export function SwapForm() {
     }
   }, [walletClient]);
 
+  // x402-solana client for Solana payments (official PayAI x402-solana package)
+  // Reference: https://github.com/PayAINetwork/x402-solana
+  const solanaX402Client = useMemo((): X402Client | null => {
+    if (!phantomProvider?.publicKey) return null;
+    try {
+      // Create wallet adapter interface as expected by x402-solana
+      const walletAdapter = {
+        address: phantomProvider.publicKey.toBase58(),
+        signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+          // Phantom wallet supports signTransaction method (different from signAndSendTransaction)
+          // We need to use the Phantom provider's internal sign method
+          if (!phantomProvider) {
+            throw new Error('Phantom wallet not connected');
+          }
+          
+          // Phantom's signTransaction returns the signed transaction
+          // Access the signTransaction method from Phantom
+          const signMethod = (phantomProvider as any).signTransaction;
+          if (typeof signMethod === 'function') {
+            return await signMethod.call(phantomProvider, tx);
+          }
+          
+          // Fallback: Some Phantom versions might have it differently
+          // Try accessing via window.phantom.solana
+          if (typeof window !== 'undefined' && window.phantom?.solana) {
+            const phantom = window.phantom.solana;
+            if (typeof (phantom as any).signTransaction === 'function') {
+              return await (phantom as any).signTransaction(tx);
+            }
+          }
+          
+          throw new Error('Phantom wallet does not support signTransaction');
+        },
+      };
+      
+      return createX402Client({
+        wallet: walletAdapter,
+        network: 'solana',
+        rpcUrl: config.networks.solana.rpcUrl,
+        maxPaymentAmount: BigInt(2 * 10 ** 6), // max 2 USDC per swap
+      });
+    } catch (error) {
+      console.error('[Swap] Failed to initialize x402-solana client', error);
+      return null;
+    }
+  }, [phantomProvider]);
+
   const executeSwap = async () => {
     if (!fromAmount || !toAmount) return;
-    if (!fetchWithPayment) {
-      setSwapError('Connect your Base wallet to authorize swap payments.');
-      return;
+    
+    // Validate wallet connection based on chain
+    if (fromChain === 'Solana') {
+      if (!solanaAddress || !phantomProvider) {
+        setSwapError('Connect your Solana wallet (Phantom) to swap on Solana.');
+        return;
+      }
+    } else {
+      if (!fetchWithPayment) {
+        setSwapError('Connect your Base wallet to authorize swap payments.');
+        return;
+      }
     }
     
     setIsSwapping(true);
@@ -414,19 +473,40 @@ export function SwapForm() {
       const decimals = fromToken === 'SOL' ? 9 : fromToken === 'ETH' ? 18 : 6;
       const amountInSmallestUnit = parseUnits(fromAmount, decimals).toString();
 
-      // Call our x402 server to get the swap transaction
-      const response = await fetchWithPayment('/api/noLimitSwap', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chain: fromChain.toLowerCase(),
-          fromToken,
-          toToken,
-          amount: amountInSmallestUnit,
-          userAddress,
-          slippage: parseFloat(slippage),
-        }),
+      // Determine API endpoint and payment client based on chain
+      const baseUrl = config.x402ServerUrl;
+      const apiPath = fromChain === 'Solana' 
+        ? `${baseUrl}/noLimitSwap/solana`
+        : `${baseUrl}/noLimitSwap`;
+
+      const requestBody = JSON.stringify({
+        chain: fromChain.toLowerCase(),
+        fromToken,
+        toToken,
+        amount: amountInSmallestUnit,
+        userAddress,
+        slippage: parseFloat(slippage),
       });
+
+      let response: Response;
+      
+      if (fromChain === 'Solana' && solanaX402Client) {
+        // Use x402-solana for Solana payments
+        response = await solanaX402Client.fetch(apiPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+      } else if (fetchWithPayment) {
+        // Use x402-fetch for Base payments
+        response = await fetchWithPayment(apiPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+      } else {
+        throw new Error('No payment client available');
+      }
 
       const data = await response.json();
 

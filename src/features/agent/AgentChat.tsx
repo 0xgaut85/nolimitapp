@@ -6,10 +6,11 @@ import { config } from '@/config';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
+import { createX402Client, X402Client } from 'x402-solana/client';
 import { base } from 'wagmi/chains';
 import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { createX402SolanaSignerFromWalletAdapter } from '@/lib/solanaX402Signer';
+import { VersionedTransaction } from '@solana/web3.js';
 
 type Message = {
   id: string;
@@ -24,7 +25,7 @@ export function AgentChat() {
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   
-  // Solana Wallet Adapter hook for x402 payments
+  // Solana Wallet Adapter hook
   const solanaWallet = useWallet();
   
   // Reown hooks for network detection
@@ -69,26 +70,35 @@ export function AgentChat() {
     }
   }, [walletClient]);
 
-  // x402-fetch for Solana using Solana Wallet Adapter
-  const solanaFetchWithPayment = useMemo(() => {
-    const solanaSigner = createX402SolanaSignerFromWalletAdapter(solanaWallet);
-    if (!solanaSigner) return null;
-    try {
-      return wrapFetchWithPayment(
-        fetch,
-        solanaSigner as any,
-        BigInt(1 * 10 ** 6), // max 1 USDC
-        undefined,
-        { svmConfig: { rpcUrl: config.networks.solana.rpcUrl } },
-      );
-    } catch (err) {
-      console.error('[x402-fetch] Failed to initialize Solana:', err);
+  // x402-solana client for Solana payments (official PayAI x402-solana package)
+  const solanaX402Client = useMemo((): X402Client | null => {
+    if (!solanaWallet.connected || !solanaWallet.publicKey || !solanaWallet.signTransaction) {
       return null;
     }
-  }, [solanaWallet]);
-
-  // Select the right fetch based on active network
-  const fetchWithPayment = isSolanaActive ? solanaFetchWithPayment : evmFetchWithPayment;
+    try {
+      // Create wallet adapter interface as expected by x402-solana
+      // Reference: https://github.com/PayAINetwork/x402-solana
+      const walletAdapter = {
+        address: solanaWallet.publicKey.toBase58(),
+        signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+          if (!solanaWallet.signTransaction) {
+            throw new Error('Wallet does not support transaction signing');
+          }
+          return await solanaWallet.signTransaction(tx);
+        },
+      };
+      
+      return createX402Client({
+        wallet: walletAdapter,
+        network: 'solana', // mainnet
+        rpcUrl: config.networks.solana.rpcUrl,
+        maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
+      });
+    } catch (err) {
+      console.error('[x402-solana] Failed to initialize:', err);
+      return null;
+    }
+  }, [solanaWallet.connected, solanaWallet.publicKey, solanaWallet.signTransaction]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -113,18 +123,22 @@ export function AgentChat() {
       setError('Please connect your wallet first');
       return;
     }
-    if (!fetchWithPayment) {
-      if (isSolanaActive) {
+    
+    // Validate wallet availability based on network
+    if (isSolanaActive) {
+      if (!solanaX402Client) {
         setError('Please connect a Solana wallet (Phantom, Solflare, etc.) to continue.');
-      } else {
-        setError('Payment client not available. Ensure your wallet is connected.');
+        return;
       }
-      return;
-    }
-    // Validate network - either Base or Solana
-    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
-      setError('Switch to Base network to continue.');
-      return;
+    } else {
+      if (!evmFetchWithPayment) {
+        setError('Payment client not available. Ensure your wallet is connected.');
+        return;
+      }
+      if (!chainId || chainId !== base.id) {
+        setError('Switch to Base network to continue.');
+        return;
+      }
     }
 
     const messageContent = input.trim();
@@ -148,9 +162,14 @@ export function AgentChat() {
         content: m.content
       }));
 
-      // Use Solana endpoint for Solana, Base endpoint for Base
-      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
-      const response = await fetchWithPayment(apiPath, {
+      // Use appropriate client and endpoint based on network
+      // Solana uses direct x402 server endpoint, Base uses Next.js API proxy
+      const baseUrl = config.x402ServerUrl;
+      const apiPath = isSolanaActive 
+        ? `${baseUrl}/noLimitLLM/solana` 
+        : `${baseUrl}/noLimitLLM`;
+      
+      const requestInit: RequestInit = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -160,7 +179,19 @@ export function AgentChat() {
           userAddress: connectedAddress,
           conversationHistory,
         }),
-      });
+      };
+
+      // Make request with appropriate payment client
+      let response: Response;
+      if (isSolanaActive && solanaX402Client) {
+        // Use x402-solana for Solana payments (PayAI official package)
+        response = await solanaX402Client.fetch(apiPath, requestInit);
+      } else if (evmFetchWithPayment) {
+        // Use x402-fetch for Base payments
+        response = await evmFetchWithPayment(apiPath, requestInit);
+      } else {
+        throw new Error('No payment client available');
+      }
 
       const data = await response.json();
 
