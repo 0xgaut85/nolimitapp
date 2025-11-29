@@ -63,6 +63,12 @@ const tokenOptions: { symbol: TokenSymbol; name: string }[] = [
   { symbol: 'USDC', name: 'USD Coin' },
 ];
 
+// Tokens available per chain
+const chainTokens: Record<ChainName, TokenSymbol[]> = {
+  Base: ['ETH', 'USDC'],
+  Solana: ['SOL', 'USDC', 'USDT'],
+};
+
 const tokenLogos: Record<TokenSymbol, string> = {
   ETH: '/logos/ethereum.jpg',
   SOL: '/logos/solana.jpg',
@@ -571,6 +577,21 @@ export function SwapForm() {
       setSwapSuccess(true);
       setFromAmount('');
       setToAmount('');
+      
+      // Refresh balances after successful swap (with delay to allow chain to update)
+      setTimeout(async () => {
+        if (fromChain === 'Solana') {
+          const solAddress = effectiveSolanaAddress || solanaAddress;
+          if (solAddress) {
+            try {
+              await fetchSolanaBalances(new PublicKey(solAddress));
+            } catch (e) {
+              console.error('[Swap] Failed to refresh Solana balances:', e);
+            }
+          }
+        }
+        // Base balances are automatically refreshed by wagmi hooks
+      }, 3000);
     } catch (error) {
       console.error('[Swap] Error:', error);
       setSwapError(error instanceof Error ? error.message : 'Swap failed');
@@ -637,10 +658,20 @@ export function SwapForm() {
   const dropdownClass =
     'bg-black border border-white/20 rounded-lg shadow-2xl overflow-hidden backdrop-blur-lg';
 
-  const tokensWithBalances = tokenOptions.map((token) => ({
-    ...token,
-    balance: getTokenBalance(token.symbol),
-  }));
+  // Filter tokens based on current chain
+  const availableFromTokens = tokenOptions
+    .filter((token) => chainTokens[fromChain].includes(token.symbol))
+    .map((token) => ({
+      ...token,
+      balance: getTokenBalance(token.symbol),
+    }));
+  
+  const availableToTokens = tokenOptions
+    .filter((token) => chainTokens[toChain].includes(token.symbol))
+    .map((token) => ({
+      ...token,
+      balance: getTokenBalance(token.symbol),
+    }));
 
   const displayAddress =
     address && isConnected ? `${address.slice(0, 6)}...${address.slice(-4)}` : solanaAddress ? `${solanaAddress.slice(0, 6)}...${solanaAddress.slice(-4)}` : '';
@@ -942,6 +973,7 @@ export function SwapForm() {
             </div>
           </div>
 
+          {/* Send to different wallet */}
           <div className="mt-4 pt-4 border-t border-white/10">
             <label className="flex items-center gap-3 cursor-pointer group">
               <input
@@ -968,12 +1000,18 @@ export function SwapForm() {
                   type="text"
                   value={recipientAddress}
                   onChange={(event) => setRecipientAddress(event.target.value)}
-                  placeholder="Enter wallet address (0x... or Solana address)"
+                  placeholder={fromChain === 'Solana' ? 'Enter Solana wallet address' : 'Enter wallet address (0x...)'}
                   className="w-full bg-white/5 backdrop-blur-sm border border-white/20 text-white p-4 font-mono text-sm focus:outline-none focus:border-[#b8d1b3] hover:border-white/30 transition-colors rounded-lg placeholder:text-white/30"
                 />
                 <p className="text-xs font-mono text-white/40">
                   ⚠️ Double-check the address. Transactions cannot be reversed.
                 </p>
+                {/* Warning for Solana SOL output */}
+                {fromChain === 'Solana' && toToken === 'SOL' && (
+                  <p className="text-xs font-mono text-amber-400/80">
+                    ⚠️ Sending native SOL to different wallet is not supported. Output will go to your wallet.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -1088,7 +1126,7 @@ export function SwapForm() {
         showFromTokenDropdown,
         'fromToken',
         <div className={`${dropdownClass} max-h-64 overflow-y-auto`}>
-          {tokensWithBalances.map((token) => (
+          {availableFromTokens.map((token) => (
             <button
               key={`${token.symbol}-from`}
               onClick={() => {
@@ -1112,7 +1150,7 @@ export function SwapForm() {
         showToTokenDropdown,
         'toToken',
         <div className={`${dropdownClass} max-h-64 overflow-y-auto`}>
-          {tokensWithBalances.map((token) => (
+          {availableToTokens.map((token) => (
             <button
               key={`${token.symbol}-to`}
               onClick={() => {

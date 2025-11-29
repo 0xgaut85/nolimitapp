@@ -942,53 +942,68 @@ async function getJupiterSwapTransaction(
   console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
 
   // 2. Get Swap Transaction
-  // If recipient is specified, tokens will be sent to that wallet instead of userPublicKey
-  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10), 'destination:', (recipient || userPublicKey)?.slice(0, 10));
-  
-  // For sending to a different wallet, we need to compute the recipient's Associated Token Account (ATA)
-  // for the output token. destinationTokenAccount expects a token account, not a wallet address.
+  // For sending to a different wallet, compute the recipient's Associated Token Account (ATA)
   let destinationTokenAccount: string | undefined;
+  const SOL_MINT = 'So11111111111111111111111111111111111111112';
   
-  if (recipient) {
-    try {
-      const recipientPubkey = new PublicKey(recipient);
-      const outputMintPubkey = new PublicKey(outputMint);
-      
-      // For native SOL (wrapped SOL), we still need to provide the ATA
-      // Jupiter's wrapAndUnwrapSol handles the unwrapping
-      const ata = getAssociatedTokenAddressSync(
-        outputMintPubkey,
-        recipientPubkey,
-        false, // allowOwnerOffCurve
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      );
-      destinationTokenAccount = ata.toBase58();
-      console.log('[Jupiter] Computed recipient ATA:', destinationTokenAccount);
-    } catch (err) {
-      console.error('[Jupiter] Failed to compute recipient ATA:', err);
-      throw new Error('Invalid recipient wallet address');
+  if (recipient && recipient !== userPublicKey) {
+    // For native SOL output, we can't use destinationTokenAccount (wrapAndUnwrapSol handles it)
+    // For SPL tokens, compute the recipient's ATA
+    if (outputMint !== SOL_MINT) {
+      try {
+        const recipientPubkey = new PublicKey(recipient);
+        const outputMintPubkey = new PublicKey(outputMint);
+        
+        const ata = getAssociatedTokenAddressSync(
+          outputMintPubkey,
+          recipientPubkey,
+          false,
+          TOKEN_PROGRAM_ID,
+          ASSOCIATED_TOKEN_PROGRAM_ID
+        );
+        destinationTokenAccount = ata.toBase58();
+        console.log('[Jupiter] Sending to recipient ATA:', destinationTokenAccount);
+      } catch (err) {
+        console.error('[Jupiter] Failed to compute recipient ATA:', err);
+        throw new Error('Invalid recipient wallet address');
+      }
+    } else {
+      // For SOL output to different wallet, we need a different approach
+      // Jupiter will unwrap to the signer, then we'd need a separate transfer
+      console.log('[Jupiter] Warning: Sending native SOL to different wallet not supported. Output will go to your wallet.');
     }
+  }
+  
+  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
+  
+  const swapBody: Record<string, unknown> = {
+    quoteResponse: quoteData,
+    userPublicKey,
+    dynamicComputeUnitLimit: true,
+    prioritizationFeeLamports: {
+      priorityLevelWithMaxLamports: {
+        maxLamports: 10000000,
+        priorityLevel: 'veryHigh'
+      }
+    }
+  };
+  
+  // Only set destinationTokenAccount for SPL token outputs to different wallet
+  if (destinationTokenAccount) {
+    swapBody.destinationTokenAccount = destinationTokenAccount;
+    // When using destinationTokenAccount, wrapAndUnwrapSol is ignored for output
+    // But we still want to wrap input SOL if needed
+    swapBody.wrapAndUnwrapSol = true;
+    // Skip RPC checks - the transaction will create the ATA if needed via setup instructions
+    swapBody.skipUserAccountsRpcCalls = true;
+  } else {
+    swapBody.wrapAndUnwrapSol = true;
   }
   
   const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      quoteResponse: quoteData,
-      userPublicKey,
-      // destinationTokenAccount sends output tokens to recipient's token account
-      // Reference: https://dev.jup.ag/api-reference/swap/swap
-      ...(destinationTokenAccount ? { destinationTokenAccount } : {}),
-      wrapAndUnwrapSol: true,
-      dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: {
-        priorityLevelWithMaxLamports: {
-          maxLamports: 10000000,
-          priorityLevel: 'veryHigh'
-        }
-      }
-    })
+    body: JSON.stringify(swapBody)
   });
 
   if (!swapResponse.ok) {
@@ -1030,9 +1045,28 @@ async function get1inchSwapTransaction(
   }
 
   const chainId = 8453; // Base
-  // If recipient is specified, add receiver parameter to send tokens to different wallet
-  const receiverParam = recipient ? `&receiver=${recipient}` : '';
-  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true${receiverParam}`;
+  // Build URL with proper parameters
+  // When using receiver, we need origin param and should not disable estimate
+  const baseUrl = `https://api.1inch.dev/swap/v6.0/${chainId}/swap`;
+  const params = new URLSearchParams({
+    src: srcToken,
+    dst: dstToken,
+    amount: amount,
+    from: userAddress,
+    slippage: slippage.toString(),
+    origin: userAddress, // Required when using receiver
+  });
+  
+  // Add receiver if different wallet specified
+  if (recipient && recipient !== userAddress) {
+    params.append('receiver', recipient);
+    console.log('[1inch] Sending to different wallet:', recipient?.slice(0, 10));
+  } else {
+    // Only disable estimate for same-wallet swaps
+    params.append('disableEstimate', 'true');
+  }
+  
+  const url = `${baseUrl}?${params.toString()}`;
 
   console.log('[1inch] Request URL:', url.replace(ONEINCH_API_KEY, '***'));
   console.log('[1inch] Getting swap for user:', userAddress?.slice(0, 10), 'destination:', (recipient || userAddress)?.slice(0, 10));
