@@ -495,6 +495,14 @@ interface SolanaRouteConfig {
   priceUsd: number;
 }
 
+type FieldDef = {
+  type?: string;
+  required?: boolean;
+  description?: string;
+  enum?: string[];
+  properties?: Record<string, FieldDef>;
+};
+
 // Solana route configurations (with x402scan-compatible metadata)
 const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
   '/noLimitLLM/solana': {
@@ -600,6 +608,51 @@ const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
   },
 };
 
+function convertToFieldDefs(
+  properties: Record<string, any> = {},
+  required: string[] = [],
+): Record<string, FieldDef> | undefined {
+  const entries = Object.entries(properties);
+  if (!entries.length) return undefined;
+  
+  const fieldDefs: Record<string, FieldDef> = {};
+  for (const [key, value] of entries) {
+    const nested = convertToFieldDefs(value.properties || {}, value.required || []);
+    fieldDefs[key] = {
+      type: value.type,
+      description: value.description,
+      enum: value.enum,
+      properties: nested,
+      required: required.includes(key) ? true : undefined,
+    };
+  }
+  return fieldDefs;
+}
+
+function buildOutputSchema(routeConfig: SolanaRouteConfig) {
+  const inputSchema = routeConfig.config.inputSchema;
+  const outputSchema = routeConfig.config.outputSchema;
+
+  const httpInput = inputSchema
+    ? {
+        type: 'http' as const,
+        method: 'POST' as const,
+        bodyType: 'json' as const,
+        bodyFields: convertToFieldDefs(inputSchema.properties || {}, inputSchema.required || []),
+      }
+    : undefined;
+
+  const httpOutput = outputSchema
+    ? convertToFieldDefs(outputSchema.properties || {}, outputSchema.required || [])
+    : undefined;
+
+  if (!httpInput && !httpOutput) return undefined;
+  return {
+    input: httpInput,
+    output: httpOutput,
+  };
+}
+
 function buildEnhancedAccepts(
   routeConfig: SolanaRouteConfig,
   paymentRequirements: PaymentRequirements,
@@ -614,6 +667,8 @@ function buildEnhancedAccepts(
   const baseAccepts = acceptsArray.length > 0 ? acceptsArray : [{
     ...paymentRequirements,
   }];
+
+  const outputSchema = buildOutputSchema(routeConfig);
   
   return baseAccepts.map((req: any) => ({
     ...req,
@@ -621,7 +676,7 @@ function buildEnhancedAccepts(
     logo: routeConfig.config.logo,
     category: routeConfig.config.category,
     inputSchema: routeConfig.config.inputSchema,
-    outputSchema: req.outputSchema || routeConfig.config.outputSchema || {},
+    outputSchema: outputSchema || req.outputSchema,
     priceUsd: routeConfig.priceUsd,
   }));
 }
