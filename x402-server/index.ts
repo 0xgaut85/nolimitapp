@@ -1294,6 +1294,7 @@ async function handleSwapRequest(
     
     // Calculate NL rewards: 1$ = 100 $NL
     const nlEarned = (parseFloat(usdValue) * 100).toFixed(2);
+    console.log('[Swap] NL rewards calculation:', { usdValue, nlEarned });
     
     const swapUsage = await prisma.swapUsage.create({
       data: {
@@ -1312,23 +1313,33 @@ async function handleSwapRequest(
     
     // Record NL reward and update user balance if earned
     if (parseFloat(nlEarned) > 0) {
-      await prisma.nLReward.create({
-        data: {
-          userId: user.id,
-          amount: nlEarned,
-          source: 'swap',
-          sourceId: swapUsage.id,
-          usdValue,
-        },
-      });
-      
-      // Update user's NL balance
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          nlBalance: (parseFloat(user.nlBalance || '0') + parseFloat(nlEarned)).toFixed(2),
-        },
-      });
+      try {
+        console.log('[Swap] Creating NL reward record...');
+        await prisma.nLReward.create({
+          data: {
+            userId: user.id,
+            amount: nlEarned,
+            source: 'swap',
+            sourceId: swapUsage.id,
+            usdValue,
+          },
+        });
+        console.log('[Swap] NL reward record created');
+        
+        // Update user's NL balance
+        const newBalance = (parseFloat(user.nlBalance || '0') + parseFloat(nlEarned)).toFixed(2);
+        console.log('[Swap] Updating user NL balance:', { old: user.nlBalance, new: newBalance });
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            nlBalance: newBalance,
+          },
+        });
+        console.log('[Swap] User NL balance updated successfully');
+      } catch (nlError) {
+        console.error('[Swap] Failed to record NL reward:', nlError);
+        // Don't fail the swap if NL recording fails
+      }
     }
 
     res.json({

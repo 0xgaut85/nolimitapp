@@ -5,7 +5,8 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install"]
 
 [phases.build]
-cmds = ["npx prisma generate"]
+# Force fresh prisma client generation
+cmds = ["rm -rf node_modules/.prisma", "npx prisma generate"]
 
 [start]
 cmd = "npx prisma migrate deploy && npm start"
