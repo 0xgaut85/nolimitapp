@@ -688,7 +688,10 @@ async function handleSwapRequest(
   }
 
   try {
-    const { chain, fromToken, toToken, amount, userAddress } = req.body;
+    console.log('[Swap] Raw body:', req.body);
+    console.log('[Swap] Body type:', typeof req.body);
+    
+    const { chain, fromToken, toToken, amount, userAddress } = req.body || {};
     
     console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...' });
 
