@@ -621,21 +621,36 @@ export function SwapForm() {
       let response: Response;
       
       if (fromChain === 'Solana' && solanaX402Client) {
-        // Ensure user has USDC ATA before x402 payment
+        // Try to ensure user has USDC ATA before x402 payment (non-blocking if it fails)
         if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
-          const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
-          const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
-          if (!hasAta) {
-            throw new Error('Failed to create USDC token account. Please ensure you have some SOL for transaction fees.');
+          try {
+            const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+            await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+          } catch (ataError) {
+            console.warn('[Swap] ATA check failed, proceeding anyway:', ataError);
+            // Continue - the user might already have an ATA or the x402 payment might still work
           }
         }
         
         // Use x402-solana for Solana payments
-        response = await solanaX402Client.fetch(apiPath, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: requestBody,
-        });
+        try {
+          response = await solanaX402Client.fetch(apiPath, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: requestBody,
+          });
+        } catch (x402Error) {
+          console.error('[Swap] x402 payment error:', x402Error);
+          if (x402Error instanceof Error) {
+            if (x402Error.message.includes('WalletAccountError')) {
+              throw new Error('Wallet connection error. Please reconnect your Solana wallet.');
+            }
+            if (x402Error.message.includes('insufficient')) {
+              throw new Error('Insufficient USDC balance for x402 payment fee ($0.10).');
+            }
+          }
+          throw new Error('Payment failed. Please ensure you have USDC for the $0.10 swap fee.');
+        }
       } else if (fetchWithPayment) {
         // Use x402-fetch for Base payments
         response = await fetchWithPayment(apiPath, {

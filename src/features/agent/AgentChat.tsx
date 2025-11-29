@@ -259,17 +259,31 @@ export function AgentChat() {
       // Make request with appropriate payment client
       let response: Response;
       if (isSolanaActive && solanaX402Client) {
-        // Ensure user has USDC ATA before x402 payment
+        // Try to ensure user has USDC ATA before x402 payment (non-blocking)
         if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
-          const connection = new Connection(config.networks.solana.rpcUrl, 'confirmed');
-          const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
-          if (!hasAta) {
-            throw new Error('Failed to create USDC token account. Please ensure you have some SOL for transaction fees.');
+          try {
+            const connection = new Connection(config.networks.solana.rpcUrl, 'confirmed');
+            await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+          } catch (ataError) {
+            console.warn('[Agent] ATA check failed, proceeding anyway:', ataError);
           }
         }
         
         // Use x402-solana for Solana payments (PayAI official package)
-        response = await solanaX402Client.fetch(apiPath, requestInit);
+        try {
+          response = await solanaX402Client.fetch(apiPath, requestInit);
+        } catch (x402Error) {
+          console.error('[Agent] x402 payment error:', x402Error);
+          if (x402Error instanceof Error) {
+            if (x402Error.message.includes('WalletAccountError')) {
+              throw new Error('Wallet connection error. Please reconnect your Solana wallet.');
+            }
+            if (x402Error.message.includes('insufficient')) {
+              throw new Error('Insufficient USDC balance for agent fee ($0.05).');
+            }
+          }
+          throw new Error('Payment failed. Please ensure you have USDC for the $0.05 agent fee.');
+        }
       } else if (evmFetchWithPayment) {
         // Use x402-fetch for Base payments
         response = await evmFetchWithPayment(apiPath, requestInit);

@@ -457,12 +457,13 @@ export function MixerForm() {
       
       if (chain === 'Solana' && solanaX402Client) {
         try {
-          // Ensure user has USDC ATA before x402 payment (required for receiving/sending USDC)
+          // Try to ensure user has USDC ATA before x402 payment (non-blocking if it fails)
           if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
-            const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
-            const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
-            if (!hasAta) {
-              throw new Error('Failed to create USDC token account. Please try again.');
+            try {
+              const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+              await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+            } catch (ataError) {
+              console.warn('[Mixer] ATA check failed, proceeding anyway:', ataError);
             }
           }
           
@@ -473,14 +474,15 @@ export function MixerForm() {
           });
         } catch (solanaPaymentError) {
           console.error('[Mixer] Solana x402 payment error:', solanaPaymentError);
-          // If x402 payment fails, provide clear error message
-          if (solanaPaymentError instanceof Error && solanaPaymentError.message.includes('WalletAccountError')) {
-            throw new Error('Wallet connection error. Please reconnect your Solana wallet and try again.');
+          if (solanaPaymentError instanceof Error) {
+            if (solanaPaymentError.message.includes('WalletAccountError')) {
+              throw new Error('Wallet connection error. Please reconnect your Solana wallet.');
+            }
+            if (solanaPaymentError.message.includes('AccountNotFoundError') || solanaPaymentError.message.includes('insufficient')) {
+              throw new Error('Insufficient USDC balance for mixer fee ($0.075).');
+            }
           }
-          if (solanaPaymentError instanceof Error && solanaPaymentError.message.includes('AccountNotFoundError')) {
-            throw new Error('USDC token account not found. Please ensure you have some SOL for transaction fees.');
-          }
-          throw solanaPaymentError;
+          throw new Error('Payment failed. Please ensure you have USDC for the $0.075 mixer fee.');
         }
       } else if (fetchWithPayment) {
         createResponse = await fetchWithPayment(apiPath, {
