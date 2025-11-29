@@ -15,6 +15,8 @@ import { X402PaymentHandler, PaymentRequirements } from 'x402-solana/server';
 import { PrismaClient } from '@prisma/client';
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import mixerRoutes from './mixer/routes';
+import { startMixerProcessor } from './mixer/engine';
 
 config();
 
@@ -1434,6 +1436,9 @@ app.get('/api/stats/user/:address', async (req, res) => {
   }
 });
 
+// Mixer routes
+app.use('/mixer', mixerRoutes);
+
 // Error handler
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (res.headersSent) return;
@@ -1450,4 +1455,8 @@ app.use((err: unknown, req: express.Request, res: express.Response, _next: expre
 app.listen(PORT, () => {
   console.log(`[x402-server] NoLimit server running on port ${PORT}`);
   console.log(`[x402-server] Using Venice AI for uncensored LLM`);
+  
+  // Start mixer background processor
+  startMixerProcessor(10000); // Check every 10 seconds
+  console.log(`[x402-server] Mixer processor started`);
 });

@@ -101,3 +101,31 @@ model DailyStat {
   
   @@index([date])
 }
+
+// Mixer - Anonymous transfers
+model MixRequest {
+  id               String   @id @default(cuid())
+  chain            String   // "base" or "solana"
+  token            String   // "ETH", "SOL", "USDC"
+  amount           String   // Amount to mix (after fee)
+  originalAmount   String   // Original deposit amount
+  fee              String   // 1% fee
+  senderAddress    String   // Who deposited (for tracking, not exposed)
+  recipientAddress String   // Where to send final output
+  depositTxHash    String?  // Initial deposit transaction
+  status           String   // "pending_deposit", "deposited", "mixing", "completed", "failed"
+  totalHops        Int      @default(5)   // Number of wallet hops
+  currentHop       Int      @default(0)   // Current hop progress
+  currentWallet    Int?     // Current pool wallet index holding funds
+  delayMinutes     Int      @default(0)   // User-requested delay
+  nextHopAt        DateTime? // When to execute next hop
+  hopHistory       String   @default("[]") // JSON array of hop details
+  errorMessage     String?  // Error details if failed
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+  
+  @@index([status])
+  @@index([chain])
+  @@index([nextHopAt])
+  @@index([createdAt])
+}
