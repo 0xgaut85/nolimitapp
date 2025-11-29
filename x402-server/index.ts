@@ -13,6 +13,8 @@ import cors from 'cors';
 import { paymentMiddleware, Resource } from 'x402-express';
 import { X402PaymentHandler, PaymentRequirements } from 'x402-solana/server';
 import { PrismaClient } from '@prisma/client';
+import { PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 config();
 
@@ -619,9 +621,34 @@ async function getJupiterSwapTransaction(
   console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
 
   // 2. Get Swap Transaction
-  // If recipient is specified, tokens will be sent to that address instead of userPublicKey
-  const destinationWallet = recipient || userPublicKey;
-  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10), 'destination:', destinationWallet?.slice(0, 10));
+  // If recipient is specified, tokens will be sent to that wallet instead of userPublicKey
+  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10), 'destination:', (recipient || userPublicKey)?.slice(0, 10));
+  
+  // For sending to a different wallet, we need to compute the recipient's Associated Token Account (ATA)
+  // for the output token. destinationTokenAccount expects a token account, not a wallet address.
+  let destinationTokenAccount: string | undefined;
+  
+  if (recipient) {
+    try {
+      const recipientPubkey = new PublicKey(recipient);
+      const outputMintPubkey = new PublicKey(outputMint);
+      
+      // For native SOL (wrapped SOL), we still need to provide the ATA
+      // Jupiter's wrapAndUnwrapSol handles the unwrapping
+      const ata = getAssociatedTokenAddressSync(
+        outputMintPubkey,
+        recipientPubkey,
+        false, // allowOwnerOffCurve
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
+      destinationTokenAccount = ata.toBase58();
+      console.log('[Jupiter] Computed recipient ATA:', destinationTokenAccount);
+    } catch (err) {
+      console.error('[Jupiter] Failed to compute recipient ATA:', err);
+      throw new Error('Invalid recipient wallet address');
+    }
+  }
   
   const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
     method: 'POST',
@@ -629,9 +656,9 @@ async function getJupiterSwapTransaction(
     body: JSON.stringify({
       quoteResponse: quoteData,
       userPublicKey,
-      // destinationTokenAccount sends output tokens to a different wallet
+      // destinationTokenAccount sends output tokens to recipient's token account
       // Reference: https://dev.jup.ag/api-reference/swap/swap
-      ...(recipient ? { destinationTokenAccount: recipient } : {}),
+      ...(destinationTokenAccount ? { destinationTokenAccount } : {}),
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: {
@@ -686,7 +713,8 @@ async function get1inchSwapTransaction(
   const receiverParam = recipient ? `&receiver=${recipient}` : '';
   const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true${receiverParam}`;
 
-  console.log('[1inch] Getting swap transaction for user:', userAddress?.slice(0, 10), 'destination:', (recipient || userAddress)?.slice(0, 10));
+  console.log('[1inch] Request URL:', url.replace(ONEINCH_API_KEY, '***'));
+  console.log('[1inch] Getting swap for user:', userAddress?.slice(0, 10), 'destination:', (recipient || userAddress)?.slice(0, 10));
 
   const response = await fetch(url, {
     headers: {
@@ -694,10 +722,19 @@ async function get1inchSwapTransaction(
     }
   });
 
+  console.log('[1inch] Response status:', response.status);
+  
   const data = await response.json();
+  console.log('[1inch] Response data:', JSON.stringify(data).slice(0, 500));
 
   if (data.error || data.statusCode) {
-    throw new Error(`1inch Error: ${data.description || data.error}`);
+    console.error('[1inch] Error response:', data);
+    throw new Error(`1inch Error: ${data.description || data.error || JSON.stringify(data)}`);
+  }
+
+  if (!data.tx) {
+    console.error('[1inch] Missing tx in response:', data);
+    throw new Error('1inch Error: No transaction data returned');
   }
 
   return {
