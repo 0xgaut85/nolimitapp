@@ -15,11 +15,11 @@ export const config = {
     base: {
       id: 8453,
       name: 'Base',
-      rpcUrl: 'https://mainnet.base.org',
+      rpcUrl: process.env.NEXT_PUBLIC_BASE_RPC_URL || 'https://mainnet.base.org',
     },
     solana: {
       name: 'Solana',
-      rpcUrl: 'https://api.mainnet-beta.solana.com',
+      rpcUrl: process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
     },
   },
   
@@ -30,5 +30,6 @@ export const config = {
     dashboardEnabled: true,
   },
 } as const;
+
 
 

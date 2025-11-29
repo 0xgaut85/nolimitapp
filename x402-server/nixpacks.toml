@@ -7,3 +7,4 @@ cmds = ["npm install", "npx prisma generate"]
 [phases.start]
 cmd = "npm start"
 
+
