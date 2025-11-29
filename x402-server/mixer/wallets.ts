@@ -1,13 +1,13 @@
 /**
  * Mixer Pool Wallet Management
- * Handles loading and accessing the 40 pool wallets (20 Base + 20 Solana)
+ * Handles loading and accessing the 20 pool wallets (10 Base + 10 Solana)
  */
 
 import { Wallet, JsonRpcProvider } from 'ethers';
 import { Keypair, Connection, PublicKey } from '@solana/web3.js';
 import * as bs58 from 'bs58';
 
-const NUM_WALLETS = 20;
+const NUM_WALLETS = 10;
 
 // Base RPC
 const BASE_RPC_URL = process.env.BASE_RPC_URL || 'https://mainnet.base.org';

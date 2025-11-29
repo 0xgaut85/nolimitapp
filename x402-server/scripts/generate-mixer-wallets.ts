@@ -11,7 +11,7 @@ import { Wallet } from 'ethers';
 import { Keypair } from '@solana/web3.js';
 import * as bs58 from 'bs58';
 
-const NUM_WALLETS = 20;
+const NUM_WALLETS = 10;
 
 console.log('='.repeat(60));
 console.log('MIXER POOL WALLET GENERATOR');
@@ -92,17 +92,9 @@ solanaWallets.forEach((w) => {
   console.log(`${w.index}. ${w.address}`);
 });
 
+// NOTE: Do NOT output private keys to files or JSON!
+// Only use Railway CLI to set them directly as environment variables.
 console.log('');
-console.log('='.repeat(60));
-console.log('JSON OUTPUT (for backup)');
-console.log('='.repeat(60));
-console.log('');
-
-const output = {
-  base: baseWallets,
-  solana: solanaWallets,
-  generated: new Date().toISOString(),
-};
-
-console.log(JSON.stringify(output, null, 2));
-
+console.log('⚠️  SECURITY REMINDER: Never save private keys to files!');
+console.log('⚠️  Run the railway commands above directly in your terminal.');
+console.log('⚠️  Store a backup of keys OFFLINE only (not in git).');
