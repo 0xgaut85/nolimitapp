@@ -10,6 +10,9 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "generate-wallets": "tsx scripts/generate-wallets.ts",
+    "simulate:quick": "tsx scripts/simulate-activity.ts quick",
+    "simulate:timed": "tsx scripts/simulate-activity.ts timed",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
