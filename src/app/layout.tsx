@@ -7,14 +7,6 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'noLimit App',
   description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
-  icons: {
-    icon: [
-      { url: '/illustration/logox.jpg', type: 'image/jpeg' },
-      { url: '/icon.jpg', type: 'image/jpeg' },
-    ],
-    shortcut: '/illustration/logox.jpg',
-    apple: '/illustration/logox.jpg',
-  },
   openGraph: {
     title: 'noLimit App',
     description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
@@ -30,8 +22,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Force favicon - bypasses Next.js icon conventions */}
+        <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/illustration/logox.jpg" type="image/jpeg" />
-        <link rel="shortcut icon" href="/illustration/logox.jpg" type="image/jpeg" />
         <link rel="apple-touch-icon" href="/illustration/logox.jpg" />
       </head>
       <body className="dark">
