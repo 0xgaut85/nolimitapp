@@ -265,7 +265,16 @@ app.post('/api/keys', async (req, res) => {
     });
   } catch (error) {
     console.error('[API Keys] Create error:', error);
-    res.status(500).json({ error: 'Failed to create API key' });
+    // Check if it's a Prisma error about missing table
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    if (errorMessage.includes('does not exist') || errorMessage.includes('P2021')) {
+      res.status(500).json({ 
+        error: 'Database migration pending. Please contact support.',
+        details: 'ApiKey table not found'
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to create API key', details: errorMessage });
+    }
   }
 });
 
