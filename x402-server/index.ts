@@ -448,6 +448,19 @@ const basePaymentResources = {
       category: 'Trading',
     },
   },
+  'POST /noLimitMixer': {
+    price: '$0.075',
+    network: 'base',
+    config: {
+      description: 'Anonymous transfers that break the on-chain link between sender and recipient',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitMixer`,
+      name: 'noLimit Mixer',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Privacy',
+    },
+  },
 } as Parameters<typeof paymentMiddleware>[1];
 
 // Payment middleware for Base (EVM) - UNCHANGED
@@ -549,6 +562,41 @@ const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
       },
     },
     priceUsd: 0.10,
+  },
+  '/noLimitMixer/solana': {
+    price: {
+      amount: '75000', // $0.075 USDC (6 decimals)
+      asset: { address: USDC_MINT_MAINNET, decimals: 6 },
+    },
+    network: 'solana',
+    config: {
+      description: 'Anonymous transfers that break the on-chain link between sender and recipient',
+      mimeType: 'application/json',
+      discoverable: true,
+      resource: `${serverPublicUrl}/noLimitMixer/solana`,
+      name: 'noLimit Mixer',
+      logo: 'https://nolimit.foundation/illustration/logox.jpg',
+      category: 'Privacy',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          token: { type: 'string', description: 'Token to mix (SOL or USDC)' },
+          amount: { type: 'string', description: 'Amount to mix' },
+          recipientAddress: { type: 'string', description: 'Recipient wallet address' },
+          userAddress: { type: 'string', description: 'Sender wallet address' },
+        },
+        required: ['token', 'amount', 'recipientAddress', 'userAddress'],
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          mixId: { type: 'string' },
+          depositAddress: { type: 'string' },
+        },
+      },
+    },
+    priceUsd: 0.075,
   },
 };
 
@@ -717,6 +765,7 @@ async function solanaX402Middleware(
 // Apply Solana x402 middleware to Solana routes (must come BEFORE route handlers)
 app.use('/noLimitLLM/solana', solanaX402Middleware);
 app.use('/noLimitSwap/solana', solanaX402Middleware);
+app.use('/noLimitMixer/solana', solanaX402Middleware);
 
 // Helper: Get or create user
 async function getOrCreateUser(address: string) {
@@ -1172,7 +1221,7 @@ async function handleSwapRequest(
     }
 
     // Calculate USD value and NL rewards
-    // Rule: 1$ swapped = 1 $NL earned
+    // Rule: 1$ swapped = 100 $NL earned
     let usdValue = '0';
     const stablecoins = ['USDC', 'USDT'];
     
@@ -1198,8 +1247,8 @@ async function handleSwapRequest(
       }
     }
     
-    // Calculate NL rewards: 1$ = 1 NL
-    const nlEarned = usdValue;
+    // Calculate NL rewards: 1$ = 100 $NL
+    const nlEarned = (parseFloat(usdValue) * 100).toFixed(2);
     
     const swapUsage = await prisma.swapUsage.create({
       data: {
@@ -1252,6 +1301,54 @@ async function handleSwapRequest(
 // Route: noLimit Swap Transaction
 app.post('/noLimitSwap', (req, res) => handleSwapRequest(req, res, 'base'));
 app.post('/noLimitSwap/solana', (req, res) => handleSwapRequest(req, res, 'solana'));
+
+// Route: noLimit Mixer (x402 protected)
+// These endpoints require payment via x402 before the mix request is created
+async function handleMixerRequest(
+  req: express.Request,
+  res: express.Response,
+  chainOverride: 'base' | 'solana',
+) {
+  if (res.headersSent) return;
+
+  try {
+    const { token, amount, recipientAddress, userAddress } = req.body;
+
+    if (!token || !amount || !recipientAddress || !userAddress) {
+      return res.status(400).json({ error: 'Missing required fields: token, amount, recipientAddress, userAddress' });
+    }
+
+    // Forward to mixer create endpoint
+    const { createMixRequest, calculateFee } = await import('./mixer/engine');
+    
+    const result = await createMixRequest({
+      chain: chainOverride,
+      token,
+      amount,
+      senderAddress: userAddress,
+      recipientAddress,
+      delayMinutes: 0, // Instant by default via x402
+    });
+
+    const { fee, netAmount } = calculateFee(amount);
+
+    res.json({
+      success: true,
+      mixId: result.id,
+      depositAddress: result.depositAddress,
+      depositAmount: result.depositAmount,
+      fee,
+      outputAmount: netAmount,
+      message: `Send ${amount} ${token} to the deposit address to complete mixing`,
+    });
+  } catch (error) {
+    console.error('[Mixer x402] Error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Mixer request failed' });
+  }
+}
+
+app.post('/noLimitMixer', (req, res) => handleMixerRequest(req, res, 'base'));
+app.post('/noLimitMixer/solana', (req, res) => handleMixerRequest(req, res, 'solana'));
 
 // Route: Stats (public, no payment required)
 app.get('/api/stats', async (req, res) => {

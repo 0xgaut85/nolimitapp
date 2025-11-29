@@ -106,9 +106,11 @@ export function SwapForm() {
   const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
 
   const [fromChain, setFromChain] = useState<ChainName>('Base');
-  const [toChain, setToChain] = useState<ChainName>('Base');
   const [fromToken, setFromToken] = useState<TokenSymbol>('ETH');
   const [toToken, setToToken] = useState<TokenSymbol>('USDT');
+  
+  // toChain is always locked to fromChain (no crosschain)
+  const toChain = fromChain;
   const [fromAmount, setFromAmount] = useState('');
   const [toAmount, setToAmount] = useState('');
   const [slippage, setSlippage] = useState('0.5');
@@ -227,7 +229,7 @@ export function SwapForm() {
       setSolanaAddress(walletAddress);
       // Auto-select Solana chain when Phantom connects
       setFromChain('Solana');
-      setToChain('Solana');
+      // toChain is automatically locked to fromChain
       setFromToken('SOL');
       setToToken('USDC');
       await fetchSolanaBalances(response.publicKey);
@@ -384,10 +386,10 @@ export function SwapForm() {
   };
 
   const handleSwapTokens = () => {
-    setFromChain(toChain);
-    setToChain(fromChain);
+    // Only swap tokens, not chains (chains are locked)
+    const tempToken = fromToken;
     setFromToken(toToken);
-    setToToken(fromToken);
+    setToToken(tempToken);
     setFromAmount(toAmount);
     setToAmount(fromAmount);
   };
@@ -905,25 +907,17 @@ export function SwapForm() {
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative z-30">
               <label className="text-xs font-mono text-white/50 uppercase tracking-wider block mb-2">
-                To Chain
+                To Chain <span className="text-white/30">(same as from)</span>
               </label>
-              <button
-                ref={toChainButtonRef}
-                data-dropdown-trigger
-                onClick={() => {
-                  setShowToChainDropdown((prev) => !prev);
-                  setShowFromChainDropdown(false);
-                  setShowFromTokenDropdown(false);
-                  setShowToTokenDropdown(false);
-                }}
-                className="w-full bg-black border border-white/20 text-white px-3 py-2 font-mono text-sm flex items-center gap-2 rounded-lg hover:border-white/30 transition-colors text-left relative"
+              <div
+                className="w-full bg-black/50 border border-white/10 text-white/70 px-3 py-2 font-mono text-sm flex items-center gap-2 rounded-lg cursor-not-allowed text-left relative"
               >
                 <Image src={getChainLogo(toChain)} alt={toChain} width={20} height={20} className="rounded-full flex-shrink-0" />
                 <span className="flex-1">{toChain}</span>
-                <svg className="w-4 h-4 text-white/50 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                <svg className="w-4 h-4 text-white/30 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-              </button>
+              </div>
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-5 md:p-6 hover:border-[#b8d1b3]/50 transition-colors rounded-xl relative z-20 overflow-visible">
               <div className="flex items-center gap-4">
@@ -1073,26 +1067,7 @@ export function SwapForm() {
         </div>,
       )}
 
-      {renderDropdownPortal(
-        showToChainDropdown,
-        'toChain',
-        <div className={`${dropdownClass}`}>
-          {chainOptions.map((chain) => (
-            <button
-              key={chain.name}
-              onClick={() => {
-                setToChain(chain.name);
-                setShowToChainDropdown(false);
-                setToToken(chainToNativeToken[chain.name]);
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-            >
-              <Image src={chain.logo} alt={chain.name} width={28} height={28} className="rounded-full" />
-              <span className="font-mono text-sm text-white">{chain.name}</span>
-            </button>
-          ))}
-        </div>,
-      )}
+      {/* toChain dropdown removed - chain is locked to fromChain */}
 
       {renderDropdownPortal(
         showFromTokenDropdown,

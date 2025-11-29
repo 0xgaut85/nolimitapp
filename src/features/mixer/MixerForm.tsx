@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useBalance, useReadContract, useWalletClient } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
-import { parseUnits, formatUnits, parseEther } from 'viem';
-import { Connection, PublicKey, LAMPORTS_PER_SOL, SystemProgram, Transaction } from '@solana/web3.js';
+import { parseUnits, formatUnits, parseEther, erc20Abi, Address } from 'viem';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { wrapFetchWithPayment } from 'x402-fetch';
+import { createX402Client, X402Client } from 'x402-solana/client';
 import type { Provider } from '@reown/appkit-adapter-solana/react';
 import { config } from '@/config';
 
@@ -46,6 +48,8 @@ interface MixStatusResponse {
   error?: string;
 }
 
+const BASE_CHAIN_ID = 8453;
+
 export function MixerForm() {
   const { address: evmAddress, isConnected: evmConnected } = useAccount();
   const { open } = useAppKit();
@@ -60,6 +64,119 @@ export function MixerForm() {
   const [recipientAddress, setRecipientAddress] = useState('');
   const [delay, setDelay] = useState<'instant' | '1h' | '6h' | '24h'>('instant');
   const [error, setError] = useState<string | null>(null);
+
+  // Balance states
+  const [solanaBalance, setSolanaBalance] = useState('0.0000');
+  const [solanaUsdcBalance, setSolanaUsdcBalance] = useState('0.0000');
+
+  // Base balances
+  const { data: baseEthBalance } = useBalance({
+    address: evmAddress,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(evmAddress) },
+  });
+
+  const { data: baseUsdcRaw } = useReadContract({
+    abi: erc20Abi,
+    address: TOKEN_ADDRESSES.Base.USDC as Address,
+    functionName: 'balanceOf',
+    args: evmAddress ? [evmAddress] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(evmAddress && TOKEN_ADDRESSES.Base.USDC) },
+  });
+
+  // Fetch Solana balances
+  const fetchSolanaBalances = useCallback(async (publicKey: PublicKey) => {
+    try {
+      const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+      const lamports = await connection.getBalance(publicKey);
+      setSolanaBalance((lamports / LAMPORTS_PER_SOL).toFixed(4));
+
+      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, {
+        programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'),
+      });
+
+      let usdc = '0.0000';
+      tokenAccounts.value.forEach((account: any) => {
+        const mint = account.account.data.parsed.info.mint;
+        const uiAmount = account.account.data.parsed.info.tokenAmount.uiAmount ?? 0;
+        if (mint === TOKEN_ADDRESSES.Solana.USDC) {
+          usdc = uiAmount.toFixed(4);
+        }
+      });
+      setSolanaUsdcBalance(usdc);
+    } catch (err) {
+      console.error('[Mixer] Failed to fetch Solana balances:', err);
+    }
+  }, []);
+
+  // Fetch Solana balances on connect
+  useEffect(() => {
+    if (solanaAccount.isConnected && solanaAccount.address) {
+      fetchSolanaBalances(new PublicKey(solanaAccount.address));
+    }
+  }, [solanaAccount.isConnected, solanaAccount.address, fetchSolanaBalances]);
+
+  // Get current balance for selected token
+  const getCurrentBalance = useCallback(() => {
+    if (chain === 'Base') {
+      if (token === 'ETH') {
+        return baseEthBalance ? formatUnits(baseEthBalance.value, 18) : '0.0000';
+      } else if (token === 'USDC') {
+        return baseUsdcRaw ? formatUnits(baseUsdcRaw as bigint, 6) : '0.0000';
+      }
+    } else {
+      if (token === 'SOL') {
+        return solanaBalance;
+      } else if (token === 'USDC') {
+        return solanaUsdcBalance;
+      }
+    }
+    return '0.0000';
+  }, [chain, token, baseEthBalance, baseUsdcRaw, solanaBalance, solanaUsdcBalance]);
+
+  // x402 wallet client for Base
+  const { data: walletClient } = useWalletClient();
+
+  // x402-fetch for Base (EVM) payments
+  const fetchWithPayment = useMemo(() => {
+    if (!walletClient) return null;
+    try {
+      return wrapFetchWithPayment(
+        fetch,
+        walletClient as any,
+        BigInt(1 * 10 ** 6), // Allow up to 1 USDC per mixer call
+      );
+    } catch (error) {
+      console.error('[Mixer] Failed to initialize x402 payment client', error);
+      return null;
+    }
+  }, [walletClient]);
+
+  // x402-solana client for Solana payments
+  const solanaX402Client = useMemo((): X402Client | null => {
+    if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
+      try {
+        const walletAdapter = {
+          address: solanaAccount.address,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            const signedTx = await reownSolanaProvider.signTransaction(tx);
+            return signedTx as VersionedTransaction;
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: HELIUS_ENDPOINT,
+          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC per mixer
+        });
+      } catch (error) {
+        console.error('[Mixer] Failed to initialize x402-solana:', error);
+      }
+    }
+    return null;
+  }, [solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider]);
   
   // Mix state
   const [mixStatus, setMixStatus] = useState<MixStatus>('idle');
@@ -181,6 +298,16 @@ export function MixerForm() {
       return;
     }
 
+    // Validate x402 payment client
+    if (chain === 'Base' && !fetchWithPayment) {
+      setError('Connect your Base wallet to pay the mixer fee');
+      return;
+    }
+    if (chain === 'Solana' && !solanaX402Client) {
+      setError('Connect your Solana wallet to pay the mixer fee');
+      return;
+    }
+
     setError(null);
     setMixStatus('creating');
     setMixId(null);
@@ -189,19 +316,35 @@ export function MixerForm() {
     setMixProgress(0);
 
     try {
-      // Step 1: Create mix request
-      const createResponse = await fetch(`${API_BASE}/mixer/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chain: chain.toLowerCase(),
-          token,
-          amount,
-          senderAddress: connectedAddress,
-          recipientAddress,
-          delayMinutes,
-        }),
+      // Step 1: Create mix request via x402 endpoint (pays $0.075 fee)
+      const apiPath = chain === 'Solana' 
+        ? `${API_BASE}/noLimitMixer/solana`
+        : `${API_BASE}/noLimitMixer`;
+      
+      const requestBody = JSON.stringify({
+        token,
+        amount,
+        recipientAddress,
+        userAddress: connectedAddress,
       });
+
+      let createResponse: Response;
+      
+      if (chain === 'Solana' && solanaX402Client) {
+        createResponse = await solanaX402Client.fetch(apiPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+      } else if (fetchWithPayment) {
+        createResponse = await fetchWithPayment(apiPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+      } else {
+        throw new Error('No payment client available');
+      }
 
       if (!createResponse.ok) {
         const data = await createResponse.json();
@@ -449,9 +592,14 @@ export function MixerForm() {
 
             {/* Amount Input */}
             <div>
-              <label className="text-xs font-mono text-white/60 uppercase tracking-wider block mb-2">
-                Amount
-              </label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-xs font-mono text-white/60 uppercase tracking-wider">
+                  Amount
+                </label>
+                <span className="text-xs font-mono text-white/50">
+                  Balance: {parseFloat(getCurrentBalance()).toFixed(4)} {token}
+                </span>
+              </div>
               <div className="relative">
                 <input
                   type="number"
@@ -460,9 +608,17 @@ export function MixerForm() {
                   placeholder="0.00"
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 font-mono text-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#b8d1b3]/50"
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-white/50 font-mono">
-                  {token}
-                </span>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                  <button
+                    onClick={() => setAmount(getCurrentBalance())}
+                    className="text-[#b8d1b3] text-xs font-mono font-bold hover:underline"
+                  >
+                    MAX
+                  </button>
+                  <span className="text-white/50 font-mono">
+                    {token}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -549,11 +705,10 @@ export function MixerForm() {
 
         {/* How it works */}
         <div className="text-white/40 font-mono text-xs space-y-1 border-t border-white/10 pt-4">
-          <p className="text-white/60 font-bold mb-2">How it works:</p>
-          <p>1. Your funds are sent to a random pool wallet</p>
-          <p>2. Funds hop between 5-8 wallets to break the trail</p>
-          <p>3. Fresh funds are sent to your recipient</p>
-          <p>4. On-chain link between you and recipient is broken</p>
+          <p className="text-white/60 font-bold mb-2">Privacy guaranteed:</p>
+          <p>• Funds are processed through our privacy layer</p>
+          <p>• On-chain trail is broken between sender and recipient</p>
+          <p>• No logs, no tracking, complete anonymity</p>
         </div>
       </div>
     </motion.div>

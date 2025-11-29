@@ -32,23 +32,23 @@ export default function MixerPage() {
           <div className="grid md:grid-cols-3 gap-6">
             <div className="space-y-2">
               <div className="w-10 h-10 rounded-lg bg-[#b8d1b3]/20 flex items-center justify-center text-[#b8d1b3] font-mono font-bold">1</div>
-              <h4 className="text-white font-mono text-sm">Deposit</h4>
+              <h4 className="text-white font-mono text-sm">Send</h4>
               <p className="text-white/50 font-mono text-xs">
-                Send funds to the mixer pool from your wallet
+                Enter amount and recipient address
               </p>
             </div>
             <div className="space-y-2">
               <div className="w-10 h-10 rounded-lg bg-[#b8d1b3]/20 flex items-center justify-center text-[#b8d1b3] font-mono font-bold">2</div>
-              <h4 className="text-white font-mono text-sm">Mix</h4>
+              <h4 className="text-white font-mono text-sm">Privacy</h4>
               <p className="text-white/50 font-mono text-xs">
-                Funds are pooled with other users, breaking the trail
+                Our system breaks the on-chain connection
               </p>
             </div>
             <div className="space-y-2">
               <div className="w-10 h-10 rounded-lg bg-[#b8d1b3]/20 flex items-center justify-center text-[#b8d1b3] font-mono font-bold">3</div>
-              <h4 className="text-white font-mono text-sm">Withdraw</h4>
+              <h4 className="text-white font-mono text-sm">Receive</h4>
               <p className="text-white/50 font-mono text-xs">
-                Receive fresh funds at your destination address
+                Recipient gets funds with no traceable link
               </p>
             </div>
           </div>

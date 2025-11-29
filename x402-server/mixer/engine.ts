@@ -27,6 +27,10 @@ const solanaConnection = new Connection(SOLANA_RPC_URL, 'confirmed');
 // Fee percentage
 const MIXER_FEE_PERCENT = 1;
 
+// Fee recipient addresses (same as merchant addresses for x402 payments)
+const BASE_FEE_RECIPIENT = process.env.MERCHANT_ADDRESS || '0x3417828c83e8c1e787dc6dbefd79f93e0c13f694';
+const SOLANA_FEE_RECIPIENT = process.env.SOLANA_MERCHANT_ADDRESS || 'CVF8ApyzZHCKw1xCm8Fyywej2XSGasjnPuXKvwCd55z8';
+
 // Calculate fee
 export function calculateFee(amount: string): { fee: string; netAmount: string } {
   const amountNum = parseFloat(amount);
@@ -109,6 +113,7 @@ async function executeHop(mixRequest: {
   chain: string;
   token: string;
   amount: string;
+  fee: string;
   currentWallet: number | null;
   currentHop: number;
   totalHops: number;
@@ -127,11 +132,11 @@ async function executeHop(mixRequest: {
     // Final hop - send to recipient
     toAddress = mixRequest.recipientAddress;
   } else {
-    // Intermediate hop - send to another pool wallet
-    toWalletIndex = Math.floor(Math.random() * 20) + 1;
+    // Intermediate hop - send to another pool wallet (max 10 wallets now)
+    toWalletIndex = Math.floor(Math.random() * 10) + 1;
     // Avoid sending to same wallet
     while (toWalletIndex === fromWalletIndex) {
-      toWalletIndex = Math.floor(Math.random() * 20) + 1;
+      toWalletIndex = Math.floor(Math.random() * 10) + 1;
     }
     
     if (mixRequest.chain === 'base') {
@@ -147,12 +152,33 @@ async function executeHop(mixRequest: {
   console.log(`[Mixer] From wallet ${fromWalletIndex} to ${isLastHop ? 'recipient' : `wallet ${toWalletIndex}`}`);
 
   let txHash: string;
+  let feeTxHash: string | null = null;
 
   try {
     if (mixRequest.chain === 'base') {
       txHash = await executeBaseTransfer(fromWalletIndex, toAddress, mixRequest.amount, mixRequest.token);
+      
+      // On last hop, also send the fee to the fee recipient
+      if (isLastHop && parseFloat(mixRequest.fee) > 0) {
+        try {
+          feeTxHash = await executeBaseTransfer(fromWalletIndex, BASE_FEE_RECIPIENT, mixRequest.fee, mixRequest.token);
+          console.log(`[Mixer] Fee sent to Base recipient: ${feeTxHash}`);
+        } catch (feeError) {
+          console.error(`[Mixer] Failed to send fee:`, feeError);
+        }
+      }
     } else {
       txHash = await executeSolanaTransfer(fromWalletIndex, toAddress, mixRequest.amount, mixRequest.token);
+      
+      // On last hop, also send the fee to the fee recipient
+      if (isLastHop && parseFloat(mixRequest.fee) > 0) {
+        try {
+          feeTxHash = await executeSolanaTransfer(fromWalletIndex, SOLANA_FEE_RECIPIENT, mixRequest.fee, mixRequest.token);
+          console.log(`[Mixer] Fee sent to Solana recipient: ${feeTxHash}`);
+        } catch (feeError) {
+          console.error(`[Mixer] Failed to send fee:`, feeError);
+        }
+      }
     }
 
     // Update hop history
