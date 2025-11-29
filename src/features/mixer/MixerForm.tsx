@@ -9,7 +9,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { parseUnits, formatUnits, parseEther, erc20Abi, Address } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
-import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID, createAssociatedTokenAccountInstruction, getAccount, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { createX402Client, X402Client } from 'x402-solana/client';
 import type { Provider } from '@reown/appkit-adapter-solana/react';
@@ -32,6 +32,52 @@ const TOKEN_ADDRESSES = {
 
 const HELIUS_ENDPOINT = process.env.NEXT_PUBLIC_HELIUS_RPC_URL || 'https://mainnet.helius-rpc.com/?api-key=112de5d5-6530-46c2-b382-527e71c48e68';
 const API_BASE = config.x402ServerUrl;
+
+// USDC mint address on Solana mainnet (needed for x402 payments)
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+// Helper to ensure user has a USDC ATA (needed for x402 payments)
+async function ensureUsdcAta(
+  connection: Connection,
+  userPublicKey: PublicKey,
+  sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>
+): Promise<boolean> {
+  try {
+    const ata = await getAssociatedTokenAddress(USDC_MINT, userPublicKey);
+    
+    // Check if ATA exists
+    try {
+      await getAccount(connection, ata);
+      console.log('[Mixer] USDC ATA exists:', ata.toBase58());
+      return true;
+    } catch {
+      // ATA doesn't exist, create it
+      console.log('[Mixer] Creating USDC ATA for user...');
+      
+      const transaction = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          userPublicKey, // payer
+          ata, // associated token account
+          userPublicKey, // owner
+          USDC_MINT // mint
+        )
+      );
+      
+      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      transaction.feePayer = userPublicKey;
+      
+      const signature = await sendTransaction(transaction, connection);
+      console.log('[Mixer] USDC ATA created:', signature);
+      
+      // Wait for confirmation
+      await connection.confirmTransaction(signature, 'confirmed');
+      return true;
+    }
+  } catch (error) {
+    console.error('[Mixer] Failed to ensure USDC ATA:', error);
+    return false;
+  }
+}
 
 interface MixResponse {
   success: boolean;
@@ -411,6 +457,15 @@ export function MixerForm() {
       
       if (chain === 'Solana' && solanaX402Client) {
         try {
+          // Ensure user has USDC ATA before x402 payment (required for receiving/sending USDC)
+          if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
+            const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+            const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+            if (!hasAta) {
+              throw new Error('Failed to create USDC token account. Please try again.');
+            }
+          }
+          
           createResponse = await solanaX402Client.fetch(apiPath, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -421,6 +476,9 @@ export function MixerForm() {
           // If x402 payment fails, provide clear error message
           if (solanaPaymentError instanceof Error && solanaPaymentError.message.includes('WalletAccountError')) {
             throw new Error('Wallet connection error. Please reconnect your Solana wallet and try again.');
+          }
+          if (solanaPaymentError instanceof Error && solanaPaymentError.message.includes('AccountNotFoundError')) {
+            throw new Error('USDC token account not found. Please ensure you have some SOL for transaction fees.');
           }
           throw solanaPaymentError;
         }
@@ -727,9 +785,16 @@ export function MixerForm() {
               </div>
               <div className="relative">
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
+                  pattern="[0-9]*\.?[0-9]*"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                      setAmount(value);
+                    }
+                  }}
                   placeholder="0.00"
                   className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-4 font-mono text-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#b8d1b3]/50"
                 />

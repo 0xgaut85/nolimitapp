@@ -10,8 +10,49 @@ import { createX402Client, X402Client } from 'x402-solana/client';
 import { base } from 'wagmi/chains';
 import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { VersionedTransaction } from '@solana/web3.js';
+import { VersionedTransaction, Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, getAccount } from '@solana/spl-token';
 import type { Provider } from '@reown/appkit-adapter-solana/react';
+
+// USDC mint address on Solana mainnet
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+// Helper to ensure user has a USDC ATA (needed for x402 payments)
+async function ensureUsdcAta(
+  connection: Connection,
+  userPublicKey: PublicKey,
+  sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>
+): Promise<boolean> {
+  try {
+    const ata = await getAssociatedTokenAddress(USDC_MINT, userPublicKey);
+    
+    try {
+      await getAccount(connection, ata);
+      return true;
+    } catch {
+      console.log('[Agent] Creating USDC ATA for user...');
+      
+      const transaction = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          userPublicKey,
+          ata,
+          userPublicKey,
+          USDC_MINT
+        )
+      );
+      
+      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      transaction.feePayer = userPublicKey;
+      
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction(signature, 'confirmed');
+      return true;
+    }
+  } catch (error) {
+    console.error('[Agent] Failed to ensure USDC ATA:', error);
+    return false;
+  }
+}
 
 type Message = {
   id: string;
@@ -26,8 +67,8 @@ export function AgentChat() {
   const chainId = useChainId();
   const { data: walletClient } = useWalletClient();
   
-  // Solana Wallet Adapter hook (fallback)
-  const solanaWallet = useWallet();
+  // Solana Wallet Adapter hook (preferred for x402 compatibility)
+  const { publicKey: solanaPublicKey, signTransaction: signSolanaTransaction, sendTransaction: sendSolanaTransaction, connected: solanaAdapterConnected } = useWallet();
   
   // Reown hooks for network detection and Solana wallet
   const evmAccount = useAppKitAccount();
@@ -45,17 +86,17 @@ export function AgentChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Check if Solana is active (via Reown or Solana Wallet Adapter)
-  const isSolanaActive = caipNetwork?.namespace === 'solana' || 
+  const isSolanaActive = (caipNetwork as any)?.namespace === 'solana' || 
     (!isConnected && solanaAccount.isConnected) ||
-    (!isConnected && solanaWallet.connected);
+    (!isConnected && solanaAdapterConnected);
   
   // Get connected address based on active network
   const connectedAddress = useMemo(() => {
     if (isSolanaActive) {
-      return solanaWallet.publicKey?.toBase58() || solanaAccount.address;
+      return solanaPublicKey?.toBase58() || solanaAccount.address;
     }
     return evmAccount.address || address;
-  }, [isSolanaActive, solanaWallet.publicKey, solanaAccount.address, evmAccount.address, address]);
+  }, [isSolanaActive, solanaPublicKey, solanaAccount.address, evmAccount.address, address]);
   
   const isWalletConnected = Boolean(connectedAddress);
 
@@ -75,15 +116,39 @@ export function AgentChat() {
   }, [walletClient]);
 
   // x402-solana client for Solana payments (official PayAI x402-solana package)
-  // Supports both Reown Solana wallets and Solana Wallet Adapter
+  // Priority: Native adapter > Reown (native adapter has better compatibility)
   const solanaX402Client = useMemo((): X402Client | null => {
-    // Try Reown's Solana provider first (when connected via Reown UI)
+    // PRIORITY 1: Native Solana Wallet Adapter (best x402 compatibility)
+    if (solanaAdapterConnected && solanaPublicKey && signSolanaTransaction) {
+      try {
+        console.log('[Agent] Using native Solana wallet adapter for x402');
+        const walletAdapter = {
+          address: solanaPublicKey.toBase58(),
+          publicKey: solanaPublicKey,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            return await signSolanaTransaction(tx);
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
+        });
+      } catch (err) {
+        console.error('[x402-solana] Failed to initialize with native adapter:', err);
+      }
+    }
+    
+    // PRIORITY 2: Reown's Solana provider (fallback)
     if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
       try {
+        console.log('[Agent] Using Reown Solana provider for x402 (fallback)');
         const walletAdapter = {
           address: solanaAccount.address,
+          publicKey: new PublicKey(solanaAccount.address),
           signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
-            // Use Reown's Solana provider to sign
             const signedTx = await reownSolanaProvider.signTransaction(tx);
             return signedTx as VersionedTransaction;
           },
@@ -100,38 +165,14 @@ export function AgentChat() {
       }
     }
     
-    // Fallback to Solana Wallet Adapter (for direct wallet connections)
-    if (solanaWallet.connected && solanaWallet.publicKey && solanaWallet.signTransaction) {
-      try {
-        const walletAdapter = {
-          address: solanaWallet.publicKey.toBase58(),
-          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
-            if (!solanaWallet.signTransaction) {
-              throw new Error('Wallet does not support transaction signing');
-            }
-            return await solanaWallet.signTransaction(tx);
-          },
-        };
-        
-        return createX402Client({
-          wallet: walletAdapter,
-          network: 'solana',
-          rpcUrl: config.networks.solana.rpcUrl,
-          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC
-        });
-      } catch (err) {
-        console.error('[x402-solana] Failed to initialize with Wallet Adapter:', err);
-      }
-    }
-    
     return null;
   }, [
+    solanaAdapterConnected,
+    solanaPublicKey, 
+    signSolanaTransaction,
     solanaAccount.isConnected, 
     solanaAccount.address, 
     reownSolanaProvider,
-    solanaWallet.connected, 
-    solanaWallet.publicKey, 
-    solanaWallet.signTransaction
   ]);
 
   const scrollToBottom = () => {
@@ -218,6 +259,15 @@ export function AgentChat() {
       // Make request with appropriate payment client
       let response: Response;
       if (isSolanaActive && solanaX402Client) {
+        // Ensure user has USDC ATA before x402 payment
+        if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
+          const connection = new Connection(config.networks.solana.rpcUrl, 'confirmed');
+          const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+          if (!hasAta) {
+            throw new Error('Failed to create USDC token account. Please ensure you have some SOL for transaction fees.');
+          }
+        }
+        
         // Use x402-solana for Solana payments (PayAI official package)
         response = await solanaX402Client.fetch(apiPath, requestInit);
       } else if (evmFetchWithPayment) {

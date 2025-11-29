@@ -1361,6 +1361,16 @@ async function handleMixerRequest(
 
     const { fee, netAmount } = calculateFee(amount);
 
+    // Record payment for the user (x402 fee of $0.075)
+    try {
+      const user = await getOrCreateUser(userAddress);
+      await savePayment(user.id, 'mixer', '0.075', chainOverride);
+      console.log(`[Mixer] Payment recorded for user ${userAddress} on ${chainOverride}`);
+    } catch (paymentError) {
+      console.error('[Mixer] Failed to record payment:', paymentError);
+      // Don't fail the request if payment recording fails
+    }
+
     res.json({
       success: true,
       mixId: result.id,

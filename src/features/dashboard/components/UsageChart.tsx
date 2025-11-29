@@ -13,7 +13,7 @@ export function UsageChart({ data }: { data: UsageData[] }) {
   return (
     <div className="relative h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} barSize={8}>
+        <BarChart data={data} barSize={20}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           <XAxis 
             dataKey="date" 
@@ -40,7 +40,7 @@ export function UsageChart({ data }: { data: UsageData[] }) {
               color: '#fff',
               boxShadow: '0 0 20px rgba(127,255,0,0.1)'
             }}
-            itemStyle={{ color: '#7fff00' }}
+            labelStyle={{ color: '#fff', marginBottom: '4px' }}
           />
           <Legend 
             wrapperStyle={{ 
@@ -49,9 +49,10 @@ export function UsageChart({ data }: { data: UsageData[] }) {
               color: 'rgba(255,255,255,0.6)'
             }}
           />
-          <Bar dataKey="agent" name="AGENT" fill="#7fff00" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
-          <Bar dataKey="swap" name="SWAP" fill="#a78bfa" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
-          <Bar dataKey="mixer" name="MIXER" fill="#22c55e" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
+          {/* Stacked bar chart - each day shows agent + swap + mixer stacked */}
+          <Bar dataKey="agent" name="CHAT" stackId="usage" fill="#7fff00" fillOpacity={0.9} />
+          <Bar dataKey="swap" name="SWAP" stackId="usage" fill="#a78bfa" fillOpacity={0.9} />
+          <Bar dataKey="mixer" name="MIXER" stackId="usage" fill="#3b82f6" fillOpacity={0.9} radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

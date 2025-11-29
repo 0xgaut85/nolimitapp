@@ -8,7 +8,8 @@ import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransact
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
-import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, getAccount, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { createX402Client, X402Client } from 'x402-solana/client';
 import { config } from '@/config';
@@ -52,6 +53,52 @@ const HELIUS_ENDPOINT =
   process.env.NEXT_PUBLIC_HELIUS_RPC_URL ??
   'https://mainnet.helius-rpc.com/?api-key=112de5d5-6530-46c2-b382-527e71c48e68';
 const BASE_CHAIN_ID = 8453;
+
+// USDC mint address on Solana mainnet (needed for x402 payments)
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
+// Helper to ensure user has a USDC ATA (needed for x402 payments)
+async function ensureUsdcAta(
+  connection: Connection,
+  userPublicKey: PublicKey,
+  sendTransaction: (tx: Transaction, connection: Connection) => Promise<string>
+): Promise<boolean> {
+  try {
+    const ata = await getAssociatedTokenAddress(USDC_MINT, userPublicKey);
+    
+    // Check if ATA exists
+    try {
+      await getAccount(connection, ata);
+      console.log('[Swap] USDC ATA exists:', ata.toBase58());
+      return true;
+    } catch {
+      // ATA doesn't exist, create it
+      console.log('[Swap] Creating USDC ATA for user...');
+      
+      const transaction = new Transaction().add(
+        createAssociatedTokenAccountInstruction(
+          userPublicKey, // payer
+          ata, // associated token account
+          userPublicKey, // owner
+          USDC_MINT // mint
+        )
+      );
+      
+      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      transaction.feePayer = userPublicKey;
+      
+      const signature = await sendTransaction(transaction, connection);
+      console.log('[Swap] USDC ATA created:', signature);
+      
+      // Wait for confirmation
+      await connection.confirmTransaction(signature, 'confirmed');
+      return true;
+    }
+  } catch (error) {
+    console.error('[Swap] Failed to ensure USDC ATA:', error);
+    return false;
+  }
+}
 
 const chainOptions: { name: ChainName; logo: string }[] = [
   { name: 'Base', logo: '/logos/base.jpg' },
@@ -103,7 +150,7 @@ export function SwapForm() {
   const { disconnect } = useDisconnect();
   
   // Native Solana wallet adapter (best x402 compatibility)
-  const { publicKey: solanaPublicKey, signTransaction: signSolanaTransaction, connected: solanaAdapterConnected } = useWallet();
+  const { publicKey: solanaPublicKey, signTransaction: signSolanaTransaction, sendTransaction: sendSolanaTransaction, connected: solanaAdapterConnected } = useWallet();
   
   // Reown hooks for Solana wallet (fallback)
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
@@ -574,6 +621,15 @@ export function SwapForm() {
       let response: Response;
       
       if (fromChain === 'Solana' && solanaX402Client) {
+        // Ensure user has USDC ATA before x402 payment
+        if (solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction) {
+          const connection = new Connection(HELIUS_ENDPOINT, 'confirmed');
+          const hasAta = await ensureUsdcAta(connection, solanaPublicKey, sendSolanaTransaction);
+          if (!hasAta) {
+            throw new Error('Failed to create USDC token account. Please ensure you have some SOL for transaction fees.');
+          }
+        }
+        
         // Use x402-solana for Solana payments
         response = await solanaX402Client.fetch(apiPath, {
           method: 'POST',
