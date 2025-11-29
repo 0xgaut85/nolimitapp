@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch index.ts",
     "start": "tsx index.ts",
+    "build": "npx prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
