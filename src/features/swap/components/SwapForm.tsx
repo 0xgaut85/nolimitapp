@@ -513,6 +513,8 @@ export function SwapForm() {
         amount: amountInSmallestUnit,
         userAddress,
         slippage: parseFloat(slippage),
+        // Send to different wallet feature
+        ...(sendToDifferentWallet && recipientAddress ? { recipient: recipientAddress } : {}),
       });
 
       let response: Response;

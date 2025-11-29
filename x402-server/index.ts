@@ -588,6 +588,7 @@ async function getJupiterSwapTransaction(
   outputMint: string,
   amount: string,
   slippageBps = 50,
+  recipient?: string,
 ): Promise<SwapResult> {
   // Jupiter Lite API (public, no API key required)
   // Reference: https://dev.jup.ag/api-reference/swap/swap
@@ -618,13 +619,19 @@ async function getJupiterSwapTransaction(
   console.log('[Jupiter] Quote received, outAmount:', quoteData.outAmount);
 
   // 2. Get Swap Transaction
-  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
+  // If recipient is specified, tokens will be sent to that address instead of userPublicKey
+  const destinationWallet = recipient || userPublicKey;
+  console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10), 'destination:', destinationWallet?.slice(0, 10));
+  
   const swapResponse = await fetch(`${JUPITER_API_BASE}/swap`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       quoteResponse: quoteData,
       userPublicKey,
+      // destinationTokenAccount sends output tokens to a different wallet
+      // Reference: https://dev.jup.ag/api-reference/swap/swap
+      ...(recipient ? { destinationTokenAccount: recipient } : {}),
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: {
@@ -668,13 +675,18 @@ async function get1inchSwapTransaction(
   dstToken: string,
   amount: string,
   slippage = 1,
+  recipient?: string,
 ): Promise<SwapResult> {
   if (!ONEINCH_API_KEY) {
     throw new Error('1inch API Key not configured on server');
   }
 
   const chainId = 8453; // Base
-  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true`;
+  // If recipient is specified, add receiver parameter to send tokens to different wallet
+  const receiverParam = recipient ? `&receiver=${recipient}` : '';
+  const url = `https://api.1inch.dev/swap/v6.0/${chainId}/swap?src=${srcToken}&dst=${dstToken}&amount=${amount}&from=${userAddress}&slippage=${slippage}&disableEstimate=true${receiverParam}`;
+
+  console.log('[1inch] Getting swap transaction for user:', userAddress?.slice(0, 10), 'destination:', (recipient || userAddress)?.slice(0, 10));
 
   const response = await fetch(url, {
     headers: {
@@ -776,9 +788,9 @@ async function handleSwapRequest(
     console.log('[Swap] Raw body:', req.body);
     console.log('[Swap] Body type:', typeof req.body);
     
-    const { chain, fromToken, toToken, amount, userAddress } = req.body || {};
+    const { chain, fromToken, toToken, amount, userAddress, recipient } = req.body || {};
     
-    console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...' });
+    console.log('[Swap] Request received:', { chain, fromToken, toToken, amount, userAddress: userAddress?.slice(0, 10) + '...', recipient: recipient?.slice(0, 10) || 'self' });
 
     if (!fromToken || !toToken || !amount || !userAddress) {
       console.log('[Swap] Missing required fields');
@@ -813,13 +825,13 @@ async function handleSwapRequest(
     if (normalizedChain === 'solana') {
       const inputMint = tokens.solana[fromToken] || fromToken;
       const outputMint = tokens.solana[toToken] || toToken;
-      console.log('[Swap] Calling Jupiter API:', { userAddress: userAddress?.slice(0, 10), inputMint, outputMint, amount });
-      swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount);
+      console.log('[Swap] Calling Jupiter API:', { userAddress: userAddress?.slice(0, 10), inputMint, outputMint, amount, recipient: recipient?.slice(0, 10) || 'self' });
+      swapResult = await getJupiterSwapTransaction(userAddress, inputMint, outputMint, amount, 50, recipient);
       console.log('[Swap] Jupiter response received');
     } else {
       const srcToken = tokens.base[fromToken] || fromToken;
       const dstToken = tokens.base[toToken] || toToken;
-      swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount);
+      swapResult = await get1inchSwapTransaction(userAddress, srcToken, dstToken, amount, 1, recipient);
     }
 
     await prisma.swapUsage.create({
