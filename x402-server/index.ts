@@ -589,8 +589,11 @@ async function getJupiterSwapTransaction(
   amount: string,
   slippageBps = 50,
 ): Promise<SwapResult> {
+  // Jupiter API v6 - Updated endpoints (api.jup.ag replaces quote-api.jup.ag)
+  // Reference: https://station.jup.ag/docs/apis/swap-api
+  
   // 1. Get Quote
-  const quoteUrl = `https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
+  const quoteUrl = `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`;
   console.log('[Jupiter] Getting quote from:', quoteUrl);
   
   const quoteResponse = await fetch(quoteUrl);
@@ -607,7 +610,7 @@ async function getJupiterSwapTransaction(
 
   // 2. Get Swap Transaction
   console.log('[Jupiter] Getting swap transaction for user:', userPublicKey?.slice(0, 10));
-  const swapResponse = await fetch('https://quote-api.jup.ag/v6/swap', {
+  const swapResponse = await fetch('https://api.jup.ag/swap/v1/swap', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
