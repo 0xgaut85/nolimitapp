@@ -116,16 +116,33 @@ app.get('/', (req, res) => {
 
 // CORS - Must be BEFORE any other middleware
 // Custom middleware to handle all requests including OPTIONS preflight
+// x402 protocol uses X-PAYMENT header for payment data
 app.use((req, res, next) => {
   // Set CORS headers for all responses
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Payment, X-Payment-Response, X-Payment-Required, X-Payment-Quote, WWW-Authenticate, Accept');
-  res.setHeader('Access-Control-Expose-Headers', 'X-Payment, X-Payment-Response, X-Payment-Required, X-Payment-Quote, WWW-Authenticate');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, HEAD');
+  // Include both cases for x402 headers (X-PAYMENT and x-payment)
+  res.setHeader('Access-Control-Allow-Headers', 
+    'Content-Type, Authorization, Accept, Origin, ' +
+    'X-Payment, x-payment, X-PAYMENT, ' +
+    'X-Payment-Response, x-payment-response, ' +
+    'X-Payment-Required, x-payment-required, ' +
+    'X-Payment-Quote, x-payment-quote, ' +
+    'WWW-Authenticate, Access-Control-Expose-Headers'
+  );
+  res.setHeader('Access-Control-Expose-Headers', 
+    'X-Payment, x-payment, X-PAYMENT, ' +
+    'X-Payment-Response, x-payment-response, ' +
+    'X-Payment-Required, x-payment-required, ' +
+    'X-Payment-Quote, x-payment-quote, ' +
+    'WWW-Authenticate'
+  );
   res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   // Handle preflight OPTIONS requests immediately
   if (req.method === 'OPTIONS') {
+    console.log('[CORS] Preflight request for:', req.path);
     return res.status(204).end();
   }
   
