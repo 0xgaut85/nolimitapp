@@ -600,6 +600,32 @@ const solanaRouteConfigs: Record<string, SolanaRouteConfig> = {
   },
 };
 
+function buildEnhancedAccepts(
+  routeConfig: SolanaRouteConfig,
+  paymentRequirements: PaymentRequirements,
+  acceptsSource?: any[],
+) {
+  const acceptsArray = Array.isArray(acceptsSource)
+    ? acceptsSource
+    : acceptsSource
+      ? [acceptsSource]
+      : [];
+  
+  const baseAccepts = acceptsArray.length > 0 ? acceptsArray : [{
+    ...paymentRequirements,
+  }];
+  
+  return baseAccepts.map((req: any) => ({
+    ...req,
+    name: routeConfig.config.name,
+    logo: routeConfig.config.logo,
+    category: routeConfig.config.category,
+    inputSchema: routeConfig.config.inputSchema,
+    outputSchema: req.outputSchema || routeConfig.config.outputSchema || {},
+    priceUsd: routeConfig.priceUsd,
+  }));
+}
+
 // Cache for payment requirements (to avoid repeated facilitator calls)
 const paymentRequirementsCache: Record<string, { requirements: PaymentRequirements; timestamp: number }> = {};
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -678,22 +704,10 @@ async function solanaX402Middleware(
     // If no payment header, return 402 Payment Required
     if (!paymentHeader) {
       const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
-      
-      // Enhance payment requirements with x402scan-compatible fields
-      const enhancedAccepts = response402.body.accepts.map((req: any) => ({
-        ...req,
-        // Add enhanced fields for x402scan compatibility
-        name: routeConfig.config.name,
-        logo: routeConfig.config.logo,
-        category: routeConfig.config.category,
-        inputSchema: routeConfig.config.inputSchema,
-        // Ensure outputSchema is present
-        outputSchema: req.outputSchema || routeConfig.config.outputSchema || {},
-      }));
-      
+
       return res.status(402).json({
         ...response402.body,
-        accepts: enhancedAccepts,
+        accepts: buildEnhancedAccepts(routeConfig, paymentRequirements, response402.body.accepts),
       });
     }
 
@@ -705,6 +719,7 @@ async function solanaX402Middleware(
       const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
       return res.status(402).json({
         ...response402.body,
+        accepts: buildEnhancedAccepts(routeConfig, paymentRequirements, response402.body.accepts),
         error: verifyResult.invalidReason || 'Payment verification failed',
       });
     }
@@ -740,7 +755,7 @@ async function solanaX402Middleware(
     if (errorFullPath.endsWith('/') && errorFullPath.length > 1) {
       errorFullPath = errorFullPath.slice(0, -1);
     }
-    const errorRouteConfig = solanaRouteConfigs[errorFullPath];
+    const errorRouteConfig = solanaRouteConfigs[errorFullPath] || routeConfig;
     
     if (solanaPaymentHandler && errorRouteConfig) {
       try {
@@ -748,6 +763,7 @@ async function solanaX402Middleware(
         const response402 = solanaPaymentHandler.create402Response(paymentRequirements);
         return res.status(402).json({
           ...response402.body,
+          accepts: buildEnhancedAccepts(errorRouteConfig, paymentRequirements, response402.body.accepts),
           error: error instanceof Error ? error.message : 'Payment processing error',
         });
       } catch (innerError) {
