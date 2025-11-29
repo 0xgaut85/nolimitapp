@@ -1,5 +1,18 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.local
+.env.*.local
 
+# Generated files
 /generated/prisma
+
+# TypeScript build cache
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Build output
+dist/
+
+# Sensitive files
+mixer-wallets-output.txt
