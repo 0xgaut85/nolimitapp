@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useAccount } from 'wagmi';
+import { useAppKitAccount } from '@reown/appkit/react';
 import { config } from '@/config';
 import { StatCard } from '@/components/ui/StatCard';
 import { Card } from '@/components/ui/Card';
@@ -59,7 +60,21 @@ type UserStats = {
 type TabType = 'overview' | 'user';
 
 export function Dashboard() {
-  const { address, isConnected } = useAccount();
+  // EVM wallet (Base)
+  const { address: evmAddress, isConnected: evmConnected } = useAccount();
+  
+  // Solana wallet (via Reown)
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  
+  // Get effective address (EVM or Solana)
+  const address = useMemo(() => {
+    if (evmAddress) return evmAddress;
+    if (solanaAccount.address) return solanaAccount.address;
+    return undefined;
+  }, [evmAddress, solanaAccount.address]);
+  
+  const isConnected = evmConnected || solanaAccount.isConnected;
+  
   const [stats, setStats] = useState<DetailedStats | null>(null);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
