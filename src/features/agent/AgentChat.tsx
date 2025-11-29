@@ -8,6 +8,8 @@ import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { base } from 'wagmi/chains';
 import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { createX402SolanaSignerFromWalletAdapter } from '@/lib/solanaX402Signer';
 
 type Message = {
   id: string;
@@ -17,27 +19,43 @@ type Message = {
 };
 
 export function AgentChat() {
+  // Base/EVM wallet hooks (unchanged)
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const { data: walletClient } = useWalletClient();
+  
+  // Solana Wallet Adapter hook for x402 payments
+  const solanaWallet = useWallet();
+  
+  // Reown hooks for network detection
+  const evmAccount = useAppKitAccount();
+  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  const { caipNetwork } = useAppKitNetwork();
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { data: walletClient } = useWalletClient();
-  const evmAccount = useAppKitAccount();
-  const solanaAccount = useAppKitAccount({ namespace: 'solana' });
-  const { caipNetwork } = useAppKitNetwork();
 
-  // Check if Solana wallet is connected
-  const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
-  const connectedAddress = (isSolanaActive ? solanaAccount.address : evmAccount.address) || address;
+  // Check if Solana is active (via Reown or Solana Wallet Adapter)
+  const isSolanaActive = caipNetwork?.namespace === 'solana' || 
+    (!isConnected && solanaAccount.isConnected) ||
+    (!isConnected && solanaWallet.connected);
+  
+  // Get connected address based on active network
+  const connectedAddress = useMemo(() => {
+    if (isSolanaActive) {
+      return solanaWallet.publicKey?.toBase58() || solanaAccount.address;
+    }
+    return evmAccount.address || address;
+  }, [isSolanaActive, solanaWallet.publicKey, solanaAccount.address, evmAccount.address, address]);
+  
   const isWalletConnected = Boolean(connectedAddress);
 
-  // x402-fetch for EVM (Base) - Solana x402 payments require @solana/kit TransactionSigner
-  // which has different transaction format than Reown's @solana/web3.js provider
-  const fetchWithPayment = useMemo(() => {
+  // x402-fetch for EVM (Base) - UNCHANGED
+  const evmFetchWithPayment = useMemo(() => {
     if (!walletClient) return null;
     try {
       return wrapFetchWithPayment(
@@ -46,10 +64,31 @@ export function AgentChat() {
         BigInt(1 * 10 ** 6), // max 1 USDC
       );
     } catch (err) {
-      console.error('[x402-fetch] Failed to initialize:', err);
+      console.error('[x402-fetch] Failed to initialize EVM:', err);
       return null;
     }
   }, [walletClient]);
+
+  // x402-fetch for Solana using Solana Wallet Adapter
+  const solanaFetchWithPayment = useMemo(() => {
+    const solanaSigner = createX402SolanaSignerFromWalletAdapter(solanaWallet);
+    if (!solanaSigner) return null;
+    try {
+      return wrapFetchWithPayment(
+        fetch,
+        solanaSigner as any,
+        BigInt(1 * 10 ** 6), // max 1 USDC
+        undefined,
+        { svmConfig: { rpcUrl: config.networks.solana.rpcUrl } },
+      );
+    } catch (err) {
+      console.error('[x402-fetch] Failed to initialize Solana:', err);
+      return null;
+    }
+  }, [solanaWallet]);
+
+  // Select the right fetch based on active network
+  const fetchWithPayment = isSolanaActive ? solanaFetchWithPayment : evmFetchWithPayment;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -74,16 +113,16 @@ export function AgentChat() {
       setError('Please connect your wallet first');
       return;
     }
-    // Solana x402 payments not yet supported (library compatibility issue)
-    if (isSolanaActive) {
-      setError('Solana payments coming soon. Please switch to Base network.');
-      return;
-    }
     if (!fetchWithPayment) {
-      setError('Payment client not available. Ensure your wallet is connected.');
+      if (isSolanaActive) {
+        setError('Please connect a Solana wallet (Phantom, Solflare, etc.) to continue.');
+      } else {
+        setError('Payment client not available. Ensure your wallet is connected.');
+      }
       return;
     }
-    if (!chainId || chainId !== base.id) {
+    // Validate network - either Base or Solana
+    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
       setError('Switch to Base network to continue.');
       return;
     }
@@ -109,7 +148,9 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const response = await fetchWithPayment('/api/noLimitLLM', {
+      // Use Solana endpoint for Solana, Base endpoint for Base
+      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
+      const response = await fetchWithPayment(apiPath, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

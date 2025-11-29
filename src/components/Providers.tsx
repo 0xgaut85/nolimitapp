@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { SolanaAdapter } from '@reown/appkit-adapter-solana/react';
 import { ReactNode } from 'react';
+import { SolanaWalletProvider } from './SolanaWalletProvider';
 
 // Create query client
 const queryClient = new QueryClient();
@@ -20,7 +21,7 @@ const wagmiAdapter = new WagmiAdapter({
   projectId,
 });
 
-// Create Solana adapter
+// Create Solana adapter for Reown (wallet display/connection UI)
 const solanaAdapter = new SolanaAdapter();
 
 // Only Base and Solana networks
@@ -50,7 +51,9 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <SolanaWalletProvider>
+          {children}
+        </SolanaWalletProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
