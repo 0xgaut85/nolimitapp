@@ -2,6 +2,8 @@
 
 import { useAccount, useDisconnect as useWagmiDisconnect } from 'wagmi';
 import { useAppKit, useAppKitNetwork, useAppKitAccount, useDisconnect as useAppKitDisconnect } from '@reown/appkit/react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Button } from '@/components/ui/Button';
 import Image from 'next/image';
 
@@ -13,11 +15,28 @@ export function WalletButton() {
   const { caipNetwork } = useAppKitNetwork();
   const appKitAccount = useAppKitAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
+  
+  // Solana Wallet Adapter hooks
+  const solanaWallet = useWallet();
+  const { setVisible: setSolanaModalVisible } = useWalletModal();
 
+  // Check if Solana wallet adapter is connected (for x402 payments)
+  const isSolanaWalletAdapterConnected = solanaWallet.connected && solanaWallet.publicKey;
+  
   // Get the connected address (works for both EVM and Solana)
-  const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
-  const connectedAddress = (isSolanaActive ? solanaAccount.address : appKitAccount.address) || address;
-  const isWalletConnected = Boolean(isSolanaActive ? solanaAccount.isConnected : (appKitAccount.isConnected || isConnected));
+  const isSolanaActive = caipNetwork?.namespace === 'solana' || 
+    (!isConnected && solanaAccount.isConnected) || 
+    isSolanaWalletAdapterConnected;
+  
+  // For Solana, prefer Wallet Adapter address (needed for x402), fallback to Reown
+  const connectedAddress = isSolanaActive 
+    ? (solanaWallet.publicKey?.toBase58() || solanaAccount.address)
+    : (appKitAccount.address || address);
+  
+  const isWalletConnected = Boolean(
+    isSolanaWalletAdapterConnected || 
+    (isSolanaActive ? solanaAccount.isConnected : (appKitAccount.isConnected || isConnected))
+  );
 
   // Get network info
   const networkName = caipNetwork?.name || (isSolanaActive ? 'Solana' : 'Base');
@@ -34,16 +53,27 @@ export function WalletButton() {
   };
 
   const handleDisconnect = async () => {
+    // Disconnect Solana Wallet Adapter
+    if (solanaWallet.connected) {
+      try {
+        await solanaWallet.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+    // Disconnect Reown Solana
     try {
       await disconnectAppKit({ namespace: 'solana' });
     } catch {
       // ignore
     }
+    // Disconnect Reown EVM
     try {
       await disconnectAppKit({ namespace: 'eip155' });
     } catch {
       // ignore
     }
+    // Disconnect Wagmi
     try {
       await disconnectWagmi();
     } catch {
@@ -97,13 +127,27 @@ export function WalletButton() {
     );
   }
 
+  // Show two buttons: one for Base (Reown) and one for Solana (Wallet Adapter)
   return (
-    <Button
-      variant="primary"
-      glow
-      onClick={() => open()}
-    >
-      [CONNECT_WALLET]
-    </Button>
+    <div className="flex items-center gap-2">
+      {/* Base/EVM Connect via Reown */}
+      <Button
+        variant="primary"
+        glow
+        onClick={() => open()}
+        className="text-xs sm:text-sm"
+      >
+        [BASE]
+      </Button>
+      
+      {/* Solana Connect via Wallet Adapter */}
+      <Button
+        variant="secondary"
+        onClick={() => setSolanaModalVisible(true)}
+        className="text-xs sm:text-sm bg-gradient-to-r from-[#9945FF] to-[#14F195] text-white border-none"
+      >
+        [SOLANA]
+      </Button>
+    </div>
   );
 }
