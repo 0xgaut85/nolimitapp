@@ -7,9 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { base } from 'wagmi/chains';
-import { useAppKitAccount, useAppKitNetwork, useAppKitProvider } from '@reown/appkit/react';
-import type { Provider } from '@reown/appkit-utils/solana';
-import { createX402SolanaSignerFromReown } from '@/lib/solanaSignerAdapter';
+import { useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
 
 type Message = {
   id: string;
@@ -31,15 +29,15 @@ export function AgentChat() {
   const evmAccount = useAppKitAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   const { caipNetwork } = useAppKitNetwork();
-  const { walletProvider: solanaProvider } = useAppKitProvider<Provider>('solana');
 
   // Check if Solana wallet is connected
   const isSolanaActive = caipNetwork?.namespace === 'solana' || (!isConnected && solanaAccount.isConnected);
   const connectedAddress = (isSolanaActive ? solanaAccount.address : evmAccount.address) || address;
   const isWalletConnected = Boolean(connectedAddress);
 
-  // x402-fetch for EVM (Base)
-  const evmFetchWithPayment = useMemo(() => {
+  // x402-fetch for EVM (Base) - Solana x402 payments require @solana/kit TransactionSigner
+  // which has different transaction format than Reown's @solana/web3.js provider
+  const fetchWithPayment = useMemo(() => {
     if (!walletClient) return null;
     try {
       return wrapFetchWithPayment(
@@ -48,31 +46,10 @@ export function AgentChat() {
         BigInt(1 * 10 ** 6), // max 1 USDC
       );
     } catch (err) {
-      console.error('[x402-fetch] Failed to initialize EVM:', err);
+      console.error('[x402-fetch] Failed to initialize:', err);
       return null;
     }
   }, [walletClient]);
-
-  // x402-fetch for Solana using adapter
-  const solanaFetchWithPayment = useMemo(() => {
-    if (!solanaProvider || !solanaAccount.address) return null;
-    try {
-      const solanaSigner = createX402SolanaSignerFromReown(solanaProvider, solanaAccount.address);
-      return wrapFetchWithPayment(
-        fetch,
-        solanaSigner as any,
-        BigInt(1 * 10 ** 6), // max 1 USDC
-        undefined,
-        { svmConfig: { rpcUrl: config.networks.solana.rpcUrl } },
-      );
-    } catch (err) {
-      console.error('[x402-fetch] Failed to initialize Solana:', err);
-      return null;
-    }
-  }, [solanaProvider, solanaAccount.address]);
-
-  // Select the right fetch based on active network
-  const fetchWithPayment = isSolanaActive ? solanaFetchWithPayment : evmFetchWithPayment;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -97,12 +74,16 @@ export function AgentChat() {
       setError('Please connect your wallet first');
       return;
     }
+    // Solana x402 payments not yet supported (library compatibility issue)
+    if (isSolanaActive) {
+      setError('Solana payments coming soon. Please switch to Base network.');
+      return;
+    }
     if (!fetchWithPayment) {
       setError('Payment client not available. Ensure your wallet is connected.');
       return;
     }
-    // Validate network - either Base or Solana
-    if (!isSolanaActive && (!chainId || chainId !== base.id)) {
+    if (!chainId || chainId !== base.id) {
       setError('Switch to Base network to continue.');
       return;
     }
@@ -128,8 +109,7 @@ export function AgentChat() {
         content: m.content
       }));
 
-      const apiPath = isSolanaActive ? '/api/noLimitLLM/solana' : '/api/noLimitLLM';
-      const response = await fetchWithPayment(apiPath, {
+      const response = await fetchWithPayment('/api/noLimitLLM', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -202,7 +182,7 @@ export function AgentChat() {
               noLimit LLM
             </h2>
             <p className="text-white/60 max-w-md mb-4">
-              Uncensored AI assistant powered by Venice AI.
+              Uncensored AI assistant with no restrictions.
             </p>
             <div className="flex items-center gap-2 mb-8 px-4 py-2 bg-[#7fff00]/10 border border-[#7fff00]/30 rounded-lg">
               <span className="text-[#7fff00] font-mono text-sm">{config.fees.agent} USDC</span>

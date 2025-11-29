@@ -145,7 +145,7 @@ export default function HomePage() {
                   <div className="text-3xl md:text-4xl font-mono mb-4 md:mb-6 text-[#b8d1b3]">[04]</div>
                   <h3 className="text-2xl md:text-3xl font-bold mb-3 md:mb-4 text-[#2d5a3d]">noLimit Swap</h3>
                   <p className="text-base md:text-lg text-black leading-relaxed mb-4 md:mb-6">
-                    High-frequency trading router with privacy preservation. Multi-chain support for Base and Solana with advanced routing through Jupiter and 1inch.
+                    High-frequency trading router with privacy preservation. Multi-chain support for Base and Solana with optimal execution and MEV protection.
                   </p>
                   <div className="font-mono text-sm text-[#4a7c59]">
                     → 0.10 USDC per swap
