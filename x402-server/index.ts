@@ -973,10 +973,10 @@ async function getJupiterSwapTransaction(
   amount: string,
   slippageBps = 50,
 ): Promise<SwapResult> {
-  // Jupiter V6 API - Official documentation: https://station.jup.ag/docs/apis/swap-api
-  // Using public.jupiterapi.com as quote-api.jup.ag has DNS issues on Railway
+  // Jupiter Swap API - Official documentation: https://dev.jup.ag/api-reference/swap
+  // Using lite-api.jup.ag/swap/v1 as per official docs
   
-  const JUPITER_API = 'https://public.jupiterapi.com';
+  const JUPITER_API = 'https://lite-api.jup.ag/swap/v1';
   
   console.log('[Jupiter] Starting swap request:', { 
     userPublicKey: userPublicKey?.slice(0, 10), 
