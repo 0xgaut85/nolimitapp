@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
 import { useAppKitAccount } from '@reown/appkit/react';
+import { config } from '@/config';
 
 interface PrivacyToggleProps {
   label: string;
@@ -14,11 +15,75 @@ interface PrivacyToggleProps {
 }
 
 export function SwapRewards() {
-  const { isConnected: evmConnected } = useAccount();
+  const { address: evmAddress, isConnected: evmConnected } = useAccount();
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   
   // Check if any wallet is connected (EVM or Solana)
+  const connectedAddress = evmAddress || solanaAccount.address;
   const isConnected = evmConnected || solanaAccount.isConnected;
+  const [loadingRewards, setLoadingRewards] = useState(false);
+  const [rewardsError, setRewardsError] = useState<string | null>(null);
+  const [rewardStats, setRewardStats] = useState({
+    totalEarned: '0.00',
+    weekEarned: '0.0',
+    lastSwap: '0.0',
+  });
+  
+  const fetchRewards = useCallback(async () => {
+    if (!connectedAddress) return;
+    setLoadingRewards(true);
+    setRewardsError(null);
+    
+    try {
+      const response = await fetch(`${config.x402ServerUrl}/api/stats/user/${connectedAddress}`);
+      const data = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to load rewards');
+      }
+      
+      const totalEarned = parseFloat(data.totalNlEarned || data.nlBalance || '0');
+      const now = Date.now();
+      const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+      const weekEarned = (data.nlRewards || []).reduce((sum: number, reward: { amount: string; createdAt: string }) => {
+        const createdAt = new Date(reward.createdAt).getTime();
+        if (createdAt >= weekAgo) {
+          return sum + parseFloat(reward.amount || '0');
+        }
+        return sum;
+      }, 0);
+      
+      const lastSwapEarned = data.swapHistory?.[0]?.nlEarned || '0';
+      
+      setRewardStats({
+        totalEarned: totalEarned.toFixed(2),
+        weekEarned: weekEarned.toFixed(1),
+        lastSwap: parseFloat(lastSwapEarned || '0').toFixed(1),
+      });
+    } catch (error) {
+      console.error('[SwapRewards] Failed to load rewards:', error);
+      setRewardsError(error instanceof Error ? error.message : 'Failed to load rewards');
+    } finally {
+      setLoadingRewards(false);
+    }
+  }, [connectedAddress]);
+  
+  useEffect(() => {
+    if (!isConnected || !connectedAddress) return;
+    
+    fetchRewards();
+    
+    const handler = () => fetchRewards();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('nl-rewards-updated', handler);
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('nl-rewards-updated', handler);
+      }
+    };
+  }, [fetchRewards, connectedAddress, isConnected]);
 
   const [useRelayer, setUseRelayer] = useState(true);
   const [stealthAddresses, setStealthAddresses] = useState(false);
@@ -81,18 +146,28 @@ export function SwapRewards() {
           <div className="space-y-4">
             <div>
               <p className="text-xs font-mono text-white/50 uppercase tracking-wider mb-2">Total Earned</p>
-              <p className="text-3xl font-bold font-mono text-[#b8d1b3]">
-                0.00 <span className="text-xl text-white/50">$NL</span>
-              </p>
+              {loadingRewards ? (
+                <p className="text-xs text-white/50 font-mono">Loading rewards...</p>
+              ) : rewardsError ? (
+                <p className="text-xs text-red-400 font-mono">{rewardsError}</p>
+              ) : (
+                <p className="text-3xl font-bold font-mono text-[#b8d1b3]">
+                  {rewardStats.totalEarned} <span className="text-xl text-white/50">$NL</span>
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-black/30 p-3 rounded-xl">
                 <p className="text-xs font-mono text-white/50 mb-1">This Week</p>
-                <p className="text-lg font-bold font-mono text-white">0.0</p>
+                <p className="text-lg font-bold font-mono text-white">
+                  {loadingRewards ? '...' : rewardStats.weekEarned}
+                </p>
               </div>
               <div className="bg-black/30 p-3 rounded-xl">
                 <p className="text-xs font-mono text-white/50 mb-1">Last Swap</p>
-                <p className="text-lg font-bold font-mono text-white">0.0</p>
+                <p className="text-lg font-bold font-mono text-white">
+                  {loadingRewards ? '...' : rewardStats.lastSwap}
+                </p>
               </div>
             </div>
             <div className="border-t border-white/10 pt-4">
