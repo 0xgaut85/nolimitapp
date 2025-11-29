@@ -6,6 +6,7 @@ type UsageData = {
   date: string;
   agent: number;
   swap: number;
+  mixer: number;
 };
 
 export function UsageChart({ data }: { data: UsageData[] }) {
@@ -50,6 +51,7 @@ export function UsageChart({ data }: { data: UsageData[] }) {
           />
           <Bar dataKey="agent" name="AGENT" fill="#7fff00" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
           <Bar dataKey="swap" name="SWAP" fill="#a78bfa" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
+          <Bar dataKey="mixer" name="MIXER" fill="#22c55e" fillOpacity={0.9} radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

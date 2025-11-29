@@ -1386,16 +1386,19 @@ app.get('/api/stats/detailed', async (req, res) => {
       newUsersWeek,
       agentMessages,
       swapCount,
+      mixerCount,
       payments,
       recentPayments,
       agentUsages,
       swapUsages,
+      mixerRequests,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { createdAt: { gte: oneDayAgo } } }),
       prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
       prisma.agentUsage.count(),
       prisma.swapUsage.count(),
+      prisma.mixRequest.count(),
       prisma.payment.findMany({ orderBy: { createdAt: 'desc' } }),
       prisma.payment.findMany({ 
         where: { createdAt: { gte: thirtyDaysAgo } },
@@ -1409,6 +1412,10 @@ app.get('/api/stats/detailed', async (req, res) => {
         where: { createdAt: { gte: thirtyDaysAgo } },
         orderBy: { createdAt: 'asc' },
       }),
+      prisma.mixRequest.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
 
     // Calculate revenue
@@ -1416,11 +1423,18 @@ app.get('/api/stats/detailed', async (req, res) => {
     const paymentRevenue = payments.reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
     const agentPaymentRevenue = payments.filter(p => p.service === 'agent').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
     const swapPaymentRevenue = payments.filter(p => p.service === 'swap').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
+    const mixerPaymentRevenue = payments.filter(p => p.service === 'mixer').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
     
-    // Use payment data if available, otherwise calculate from usage (each agent msg = $0.05, each swap = $0.10)
+    // Calculate mixer revenue from fees (1% of mixed amounts + $0.075 x402 fee per transaction)
+    const mixerFeeRevenue = mixerRequests
+      .filter(m => m.status === 'completed')
+      .reduce((sum, m) => sum + parseFloat(m.fee || '0'), 0);
+    
+    // Use payment data if available, otherwise calculate from usage (each agent msg = $0.05, each swap = $0.10, mixer = $0.075 x402 fee)
     const agentRevenue = agentPaymentRevenue > 0 ? agentPaymentRevenue : agentMessages * 0.05;
     const swapRevenue = swapPaymentRevenue > 0 ? swapPaymentRevenue : swapCount * 0.10;
-    const totalRevenue = paymentRevenue > 0 ? paymentRevenue : (agentRevenue + swapRevenue);
+    const mixerRevenue = mixerPaymentRevenue > 0 ? mixerPaymentRevenue : (mixerCount * 0.075) + mixerFeeRevenue;
+    const totalRevenue = paymentRevenue > 0 ? paymentRevenue : (agentRevenue + swapRevenue + mixerRevenue);
 
     // Revenue by chain
     const baseRevenue = payments.filter(p => p.chain === 'base').reduce((sum, p) => sum + parseFloat(p.amount || '0'), 0);
@@ -1430,6 +1444,7 @@ app.get('/api/stats/detailed', async (req, res) => {
     const dailyRevenue: Record<string, number> = {};
     const dailyAgentUsage: Record<string, number> = {};
     const dailySwapUsage: Record<string, number> = {};
+    const dailyMixerUsage: Record<string, number> = {};
 
     for (let i = 29; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
@@ -1437,6 +1452,7 @@ app.get('/api/stats/detailed', async (req, res) => {
       dailyRevenue[dateKey] = 0;
       dailyAgentUsage[dateKey] = 0;
       dailySwapUsage[dateKey] = 0;
+      dailyMixerUsage[dateKey] = 0;
     }
 
     recentPayments.forEach(p => {
@@ -1460,6 +1476,13 @@ app.get('/api/stats/detailed', async (req, res) => {
       }
     });
 
+    mixerRequests.forEach(m => {
+      const dateKey = m.createdAt.toISOString().split('T')[0];
+      if (dailyMixerUsage[dateKey] !== undefined) {
+        dailyMixerUsage[dateKey]++;
+      }
+    });
+
     // Format chart data
     const revenueChartData = Object.entries(dailyRevenue).map(([date, revenue]) => ({
       date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -1470,6 +1493,7 @@ app.get('/api/stats/detailed', async (req, res) => {
       date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       agent,
       swap: dailySwapUsage[date] || 0,
+      mixer: dailyMixerUsage[date] || 0,
     }));
 
     // Recent transactions (last 20)
@@ -1482,6 +1506,24 @@ app.get('/api/stats/detailed', async (req, res) => {
       createdAt: p.createdAt,
     }));
 
+    // Include mixer in recent transactions
+    const mixerTransactions = mixerRequests
+      .filter(m => m.status === 'completed' || m.status === 'mixing')
+      .slice(0, 10)
+      .map(m => ({
+        id: m.id,
+        type: 'mixer',
+        amount: m.fee,
+        chain: m.chain,
+        status: m.status === 'completed' ? 'completed' : 'pending',
+        createdAt: m.createdAt,
+      }));
+
+    // Combine and sort all transactions
+    const allTransactions = [...recentTransactions, ...mixerTransactions]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 20);
+
     res.json({
       overview: {
         totalUsers,
@@ -1490,16 +1532,18 @@ app.get('/api/stats/detailed', async (req, res) => {
         totalRevenue: totalRevenue.toFixed(2),
         agentRevenue: agentRevenue.toFixed(2),
         swapRevenue: swapRevenue.toFixed(2),
+        mixerRevenue: mixerRevenue.toFixed(2),
         baseRevenue: baseRevenue.toFixed(2),
         solanaRevenue: solanaRevenue.toFixed(2),
         agentMessages,
         swapCount,
+        mixerCount,
       },
       charts: {
         revenue: revenueChartData,
         usage: usageChartData,
       },
-      recentTransactions,
+      recentTransactions: allTransactions,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {

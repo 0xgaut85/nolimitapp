@@ -17,15 +17,17 @@ type Overview = {
   totalRevenue: string;
   agentRevenue: string;
   swapRevenue: string;
+  mixerRevenue: string;
   baseRevenue: string;
   solanaRevenue: string;
   agentMessages: number;
   swapCount: number;
+  mixerCount: number;
 };
 
 type ChartData = {
   revenue: { date: string; revenue: number }[];
-  usage: { date: string; agent: number; swap: number }[];
+  usage: { date: string; agent: number; swap: number; mixer: number }[];
 };
 
 type Transaction = {
@@ -178,11 +180,12 @@ export function Dashboard() {
             className="space-y-8"
           >
             {/* Header Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
               <StatCard title="TOTAL_USERS" value={stats.overview.totalUsers.toString()} subtitle={`+${stats.overview.newUsersToday} today`} />
               <StatCard title="TOTAL_REVENUE" value={`$${stats.overview.totalRevenue}`} subtitle="USDC" />
               <StatCard title="AGENT_MESSAGES" value={stats.overview.agentMessages.toString()} subtitle={`$${stats.overview.agentRevenue} revenue`} />
               <StatCard title="TOTAL_SWAPS" value={stats.overview.swapCount.toString()} subtitle={`$${stats.overview.swapRevenue} revenue`} />
+              <StatCard title="MIXER_TXS" value={stats.overview.mixerCount.toString()} subtitle={`$${stats.overview.mixerRevenue} revenue`} />
             </div>
 
             {/* Revenue Breakdown */}
@@ -275,7 +278,11 @@ export function Dashboard() {
                         <tr key={tx.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                           <td className="py-3 px-2">
                             <span className={`px-2 py-1 rounded text-xs ${
-                              tx.type === 'agent' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
+                              tx.type === 'agent' 
+                                ? 'bg-blue-500/20 text-blue-400' 
+                                : tx.type === 'mixer'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : 'bg-purple-500/20 text-purple-400'
                             }`}>
                               {tx.type.toUpperCase()}
                             </span>
@@ -376,7 +383,11 @@ export function Dashboard() {
                             <tr key={tx.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                               <td className="py-3 px-2">
                                 <span className={`px-2 py-1 rounded text-xs ${
-                                  tx.type === 'agent' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
+                                  tx.type === 'agent' 
+                                    ? 'bg-blue-500/20 text-blue-400' 
+                                    : tx.type === 'mixer'
+                                      ? 'bg-green-500/20 text-green-400'
+                                      : 'bg-purple-500/20 text-purple-400'
                                 }`}>
                                   {tx.type.toUpperCase()}
                                 </span>

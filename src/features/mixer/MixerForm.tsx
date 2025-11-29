@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useBalance, useReadContract, useWalletClient } from 'wagmi';
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useBalance, useReadContract, useWalletClient, useWriteContract } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { parseUnits, formatUnits, parseEther, erc20Abi, Address } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
@@ -59,6 +59,10 @@ export function MixerForm() {
   const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
   const { sendTransaction, data: txData, isPending: isSending } = useSendTransaction();
   const { isSuccess: txConfirmed, data: txReceipt } = useWaitForTransactionReceipt({ hash: txData });
+  
+  // ERC20 transfer for USDC/USDT on Base
+  const { writeContract, data: erc20TxData, isPending: isErc20Pending } = useWriteContract();
+  const { isSuccess: erc20TxConfirmed } = useWaitForTransactionReceipt({ hash: erc20TxData });
 
   const [chain, setChain] = useState<ChainName>('Base');
   const [token, setToken] = useState<TokenSymbol>('ETH');
@@ -226,12 +230,19 @@ export function MixerForm() {
     setToken(chain === 'Base' ? 'ETH' : 'SOL');
   }, [chain]);
 
-  // Confirm deposit when Base tx is confirmed
+  // Confirm deposit when Base tx is confirmed (ETH)
   useEffect(() => {
     if (txConfirmed && mixId && txData && mixStatus === 'depositing') {
       confirmMixDeposit(mixId, txData);
     }
   }, [txConfirmed, mixId, txData, mixStatus]);
+
+  // Confirm deposit when Base ERC20 tx is confirmed (USDC/USDT)
+  useEffect(() => {
+    if (erc20TxConfirmed && mixId && erc20TxData && mixStatus === 'depositing') {
+      confirmMixDeposit(mixId, erc20TxData);
+    }
+  }, [erc20TxConfirmed, mixId, erc20TxData, mixStatus]);
 
   // Poll for mix status
   useEffect(() => {
@@ -388,10 +399,20 @@ export function MixerForm() {
             value: parseEther(amount),
           });
         } else {
-          // ERC20 transfer (simplified)
-          setError('USDC mixing coming soon for Base');
-          setMixStatus('failed');
-          return;
+          // ERC20 transfer for USDC/USDT
+          const tokenAddress = token === 'USDC' 
+            ? TOKEN_ADDRESSES.Base.USDC 
+            : TOKEN_ADDRESSES.Base.USDT;
+          
+          const tokenAmount = parseUnits(amount, 6); // USDC and USDT both have 6 decimals
+          
+          writeContract({
+            abi: erc20Abi,
+            address: tokenAddress as `0x${string}`,
+            functionName: 'transfer',
+            args: [mixData.depositAddress as `0x${string}`, tokenAmount],
+            chainId: BASE_CHAIN_ID,
+          });
         }
       } else {
         // Solana transfer to pool
@@ -426,12 +447,16 @@ export function MixerForm() {
           // Confirm deposit for Solana
           await confirmMixDeposit(mixData.mixId, solTxHash);
         } else {
-          // SPL Token transfer
-          const mintPubkey = new PublicKey(TOKEN_ADDRESSES.Solana.USDC);
+          // SPL Token transfer for USDC or USDT
+          const tokenMint = token === 'USDC' 
+            ? TOKEN_ADDRESSES.Solana.USDC 
+            : TOKEN_ADDRESSES.Solana.USDT;
+          
+          const mintPubkey = new PublicKey(tokenMint);
           const senderAta = await getAssociatedTokenAddress(mintPubkey, senderPubkey);
           const poolAta = await getAssociatedTokenAddress(mintPubkey, poolPubkey);
           
-          const decimals = 6;
+          const decimals = 6; // Both USDC and USDT have 6 decimals
           const tokenAmount = Math.floor(parseFloat(amount) * Math.pow(10, decimals));
 
           const transaction = new Transaction().add(
