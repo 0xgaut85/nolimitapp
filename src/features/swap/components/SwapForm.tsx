@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
+import { useWallet } from '@solana/wallet-adapter-react';
 import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction } from '@solana/web3.js';
 import { wrapFetchWithPayment } from 'x402-fetch';
@@ -101,7 +102,10 @@ export function SwapForm() {
   const { open } = useAppKit();
   const { disconnect } = useDisconnect();
   
-  // Reown hooks for Solana wallet
+  // Native Solana wallet adapter (best x402 compatibility)
+  const { publicKey: solanaPublicKey, signTransaction: signSolanaTransaction, connected: solanaAdapterConnected } = useWallet();
+  
+  // Reown hooks for Solana wallet (fallback)
   const solanaAccount = useAppKitAccount({ namespace: 'solana' });
   const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
 
@@ -284,6 +288,18 @@ export function SwapForm() {
     };
   }, [fetchSolanaBalances, phantomProvider]);
 
+  // Fetch balances when native Solana wallet adapter connects
+  useEffect(() => {
+    if (solanaAdapterConnected && solanaPublicKey) {
+      console.log('[Swap] Native Solana wallet connected:', solanaPublicKey.toBase58());
+      fetchSolanaBalances(solanaPublicKey);
+      // Auto-select Solana chain
+      setFromChain('Solana');
+      setFromToken('SOL');
+      setToToken('USDC');
+    }
+  }, [solanaAdapterConnected, solanaPublicKey, fetchSolanaBalances]);
+
   useEffect(() => {
     const fetchPrices = async () => {
       try {
@@ -414,13 +430,39 @@ export function SwapForm() {
 
   // x402-solana client for Solana payments (official PayAI x402-solana package)
   // Reference: https://github.com/PayAINetwork/x402-solana
-  // Supports both Reown Solana wallets and direct Phantom connections
+  // Priority: 1. Native wallet adapter, 2. Reown, 3. Direct Phantom
   const solanaX402Client = useMemo((): X402Client | null => {
-    // Try Reown's Solana provider first (when connected via Reown UI)
+    // PRIORITY 1: Native Solana wallet adapter (best compatibility with x402-solana)
+    if (solanaAdapterConnected && solanaPublicKey && signSolanaTransaction) {
+      try {
+        console.log('[Swap] Using native Solana wallet adapter for x402');
+        const walletAdapter = {
+          address: solanaPublicKey.toBase58(),
+          publicKey: solanaPublicKey,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            const signedTx = await signSolanaTransaction(tx);
+            return signedTx as VersionedTransaction;
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: config.networks.solana.rpcUrl,
+          maxPaymentAmount: BigInt(2 * 10 ** 6), // max 2 USDC per swap
+        });
+      } catch (error) {
+        console.error('[Swap] Failed to initialize x402-solana with native adapter:', error);
+      }
+    }
+    
+    // PRIORITY 2: Reown's Solana provider (fallback)
     if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
       try {
+        console.log('[Swap] Using Reown Solana provider for x402 (fallback)');
         const walletAdapter = {
           address: solanaAccount.address,
+          publicKey: new PublicKey(solanaAccount.address),
           signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
             const signedTx = await reownSolanaProvider.signTransaction(tx);
             return signedTx as VersionedTransaction;
@@ -438,11 +480,13 @@ export function SwapForm() {
       }
     }
     
-    // Fallback to direct Phantom connection
+    // PRIORITY 3: Direct Phantom connection (legacy fallback)
     if (phantomProvider?.publicKey) {
       try {
+        console.log('[Swap] Using direct Phantom for x402 (legacy fallback)');
         const walletAdapter = {
           address: phantomProvider.publicKey.toBase58(),
+          publicKey: phantomProvider.publicKey,
           signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
             if (!phantomProvider) {
               throw new Error('Phantom wallet not connected');
@@ -476,10 +520,10 @@ export function SwapForm() {
     }
     
     return null;
-  }, [solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider, phantomProvider]);
+  }, [solanaAdapterConnected, solanaPublicKey, signSolanaTransaction, solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider, phantomProvider]);
 
-  // Get effective Solana address (from Reown or direct Phantom connection)
-  const effectiveSolanaAddress = solanaAccount.address || solanaAddress;
+  // Get effective Solana address (priority: native adapter > Reown > direct Phantom)
+  const effectiveSolanaAddress = solanaPublicKey?.toBase58() || solanaAccount.address || solanaAddress;
   
   const executeSwap = async () => {
     if (!fromAmount || !toAmount) return;

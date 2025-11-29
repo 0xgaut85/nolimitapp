@@ -5,6 +5,8 @@ import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useBalance, useReadContract, useWalletClient, useWriteContract } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { parseUnits, formatUnits, parseEther, erc20Abi, Address } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createTransferInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
@@ -59,6 +61,10 @@ export function MixerForm() {
   const { walletProvider: reownSolanaProvider } = useAppKitProvider<Provider>('solana');
   const { sendTransaction, data: txData, isPending: isSending } = useSendTransaction();
   const { isSuccess: txConfirmed, data: txReceipt } = useWaitForTransactionReceipt({ hash: txData });
+  
+  // Native Solana wallet adapter (preferred for x402 payments and transfers)
+  const { publicKey: solanaPublicKey, signTransaction: signSolanaTransaction, sendTransaction: sendSolanaTransaction, connected: solanaAdapterConnected } = useWallet();
+  const { setVisible: setSolanaModalVisible } = useWalletModal();
   
   // ERC20 transfer for USDC/USDT on Base
   const { writeContract, data: erc20TxData, isPending: isErc20Pending } = useWriteContract();
@@ -131,12 +137,16 @@ export function MixerForm() {
     }
   }, []);
 
-  // Fetch Solana balances on connect
+  // Fetch Solana balances on connect (native adapter or Reown)
   useEffect(() => {
-    if (solanaAccount.isConnected && solanaAccount.address) {
+    // Priority: native adapter > Reown
+    if (solanaAdapterConnected && solanaPublicKey) {
+      console.log('[Mixer] Native Solana wallet connected, fetching balances');
+      fetchSolanaBalances(solanaPublicKey);
+    } else if (solanaAccount.isConnected && solanaAccount.address) {
       fetchSolanaBalances(new PublicKey(solanaAccount.address));
     }
-  }, [solanaAccount.isConnected, solanaAccount.address, fetchSolanaBalances]);
+  }, [solanaAdapterConnected, solanaPublicKey, solanaAccount.isConnected, solanaAccount.address, fetchSolanaBalances]);
 
   // Get current balance for selected token
   const getCurrentBalance = useCallback(() => {
@@ -179,10 +189,36 @@ export function MixerForm() {
   }, [walletClient]);
 
   // x402-solana client for Solana payments
+  // Prefer native Solana wallet adapter for better compatibility
   const solanaX402Client = useMemo((): X402Client | null => {
+    // First try native Solana wallet adapter (best compatibility)
+    if (solanaAdapterConnected && solanaPublicKey && signSolanaTransaction) {
+      try {
+        console.log('[Mixer] Using native Solana wallet adapter for x402');
+        const walletAdapter = {
+          address: solanaPublicKey.toBase58(),
+          publicKey: solanaPublicKey,
+          signTransaction: async (tx: VersionedTransaction): Promise<VersionedTransaction> => {
+            const signedTx = await signSolanaTransaction(tx);
+            return signedTx as VersionedTransaction;
+          },
+        };
+        
+        return createX402Client({
+          wallet: walletAdapter,
+          network: 'solana',
+          rpcUrl: HELIUS_ENDPOINT,
+          maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC per mixer
+        });
+      } catch (error) {
+        console.error('[Mixer] Failed to initialize native x402-solana:', error);
+      }
+    }
+    
+    // Fallback to Reown if native adapter not available
     if (solanaAccount.isConnected && solanaAccount.address && reownSolanaProvider) {
       try {
-        // Create wallet adapter compatible with x402-solana
+        console.log('[Mixer] Using Reown Solana provider for x402 (fallback)');
         const walletAdapter = {
           address: solanaAccount.address,
           publicKey: new PublicKey(solanaAccount.address),
@@ -191,7 +227,7 @@ export function MixerForm() {
               const signedTx = await reownSolanaProvider.signTransaction(tx);
               return signedTx as VersionedTransaction;
             } catch (signError) {
-              console.error('[Mixer] Transaction signing failed:', signError);
+              console.error('[Mixer] Reown transaction signing failed:', signError);
               throw signError;
             }
           },
@@ -204,11 +240,11 @@ export function MixerForm() {
           maxPaymentAmount: BigInt(1 * 10 ** 6), // max 1 USDC per mixer
         });
       } catch (error) {
-        console.error('[Mixer] Failed to initialize x402-solana:', error);
+        console.error('[Mixer] Failed to initialize Reown x402-solana:', error);
       }
     }
     return null;
-  }, [solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider]);
+  }, [solanaAdapterConnected, solanaPublicKey, signSolanaTransaction, solanaAccount.isConnected, solanaAccount.address, reownSolanaProvider]);
   
   // Mix state
   const [mixStatus, setMixStatus] = useState<MixStatus>('idle');
@@ -217,9 +253,13 @@ export function MixerForm() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [mixProgress, setMixProgress] = useState(0);
 
-  // Determine connected address based on chain
-  const connectedAddress = chain === 'Base' ? evmAddress : solanaAccount.address;
-  const isConnected = chain === 'Base' ? evmConnected : solanaAccount.isConnected;
+  // Determine connected address based on chain (native adapter > Reown for Solana)
+  const connectedAddress = chain === 'Base' 
+    ? evmAddress 
+    : (solanaPublicKey?.toBase58() || solanaAccount.address);
+  const isConnected = chain === 'Base' 
+    ? evmConnected 
+    : (solanaAdapterConnected || solanaAccount.isConnected);
 
   // Available tokens per chain
   const availableTokens: TokenSymbol[] = chain === 'Base' ? ['ETH', 'USDC', 'USDT'] : ['SOL', 'USDC', 'USDT'];
@@ -431,9 +471,12 @@ export function MixerForm() {
           });
         }
       } else {
-        // Solana transfer to pool
-        if (!reownSolanaProvider) {
-          setError('Solana wallet not connected');
+        // Solana transfer to pool - prefer native wallet adapter
+        const hasNativeAdapter = solanaAdapterConnected && solanaPublicKey && sendSolanaTransaction;
+        const hasReownProvider = reownSolanaProvider;
+        
+        if (!hasNativeAdapter && !hasReownProvider) {
+          setError('Solana wallet not connected. Please connect using the Solana button.');
           setMixStatus('failed');
           return;
         }
@@ -456,11 +499,21 @@ export function MixerForm() {
           transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
           transaction.feePayer = senderPubkey;
 
-          const signedTx = await reownSolanaProvider.signAndSendTransaction(transaction);
-          const solTxHash = typeof signedTx === 'string' ? signedTx : signedTx.signature;
+          let solTxHash: string;
+          
+          if (hasNativeAdapter) {
+            // Use native wallet adapter (better compatibility)
+            console.log('[Mixer] Using native Solana wallet adapter for SOL transfer');
+            const signature = await sendSolanaTransaction(transaction, connection);
+            solTxHash = signature;
+          } else {
+            // Fallback to Reown
+            console.log('[Mixer] Using Reown for SOL transfer');
+            const signedTx = await reownSolanaProvider!.signAndSendTransaction(transaction);
+            solTxHash = typeof signedTx === 'string' ? signedTx : signedTx.signature;
+          }
+          
           setTxHash(solTxHash);
-
-          // Confirm deposit for Solana
           await confirmMixDeposit(mixData.mixId, solTxHash);
         } else {
           // SPL Token transfer for USDC or USDT
@@ -489,11 +542,21 @@ export function MixerForm() {
           transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
           transaction.feePayer = senderPubkey;
 
-          const signedTx = await reownSolanaProvider.signAndSendTransaction(transaction);
-          const solTxHash = typeof signedTx === 'string' ? signedTx : signedTx.signature;
+          let solTxHash: string;
+          
+          if (hasNativeAdapter) {
+            // Use native wallet adapter (better compatibility)
+            console.log('[Mixer] Using native Solana wallet adapter for SPL transfer');
+            const signature = await sendSolanaTransaction(transaction, connection);
+            solTxHash = signature;
+          } else {
+            // Fallback to Reown
+            console.log('[Mixer] Using Reown for SPL transfer');
+            const signedTx = await reownSolanaProvider!.signAndSendTransaction(transaction);
+            solTxHash = typeof signedTx === 'string' ? signedTx : signedTx.signature;
+          }
+          
           setTxHash(solTxHash);
-
-          // Confirm deposit for Solana
           await confirmMixDeposit(mixData.mixId, solTxHash);
         }
       }
