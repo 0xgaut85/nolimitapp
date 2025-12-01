@@ -4,10 +4,10 @@ import { useState, useEffect, useRef, useCallback, RefObject, useMemo } from 're
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient } from 'wagmi';
+import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Address, erc20Abi, formatUnits, parseUnits } from 'viem';
+import { Address, erc20Abi, formatUnits, parseUnits, maxUint256 } from 'viem';
 import { Connection, PublicKey, LAMPORTS_PER_SOL, VersionedTransaction, Transaction } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, getAccount, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { wrapFetchWithPayment } from 'x402-fetch';
@@ -53,6 +53,10 @@ const HELIUS_ENDPOINT =
   process.env.NEXT_PUBLIC_HELIUS_RPC_URL ??
   'https://mainnet.helius-rpc.com/?api-key=112de5d5-6530-46c2-b382-527e71c48e68';
 const BASE_CHAIN_ID = 8453;
+
+// 1inch v6 Router address on Base (for ERC20 approvals)
+// Per 1inch docs: https://portal.1inch.dev/documentation/apis/swap/introduction
+const ONEINCH_ROUTER_BASE = '0x111111125421cA6dc452d289314280a0f8842A65';
 
 // USDC mint address on Solana mainnet (needed for x402 payments)
 const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
@@ -207,6 +211,15 @@ export function SwapForm() {
     args: address ? [address] : undefined,
     chainId: BASE_CHAIN_ID,
     query: { enabled: Boolean(address && tokenAddresses.Base.USDC) },
+  });
+
+  const { data: baseUsdtRaw } = useReadContract({
+    abi: erc20Abi,
+    address: tokenAddresses.Base.USDT as Address,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(address && tokenAddresses.Base.USDT) },
   });
 
   const getPhantom = useCallback((): PhantomProvider | null => {
@@ -457,8 +470,50 @@ export function SwapForm() {
     setToAmount(fromAmount);
   };
 
-  const { sendTransaction } = useSendTransaction();
+  const { sendTransactionAsync } = useSendTransaction();
   const { data: walletClient } = useWalletClient();
+  
+  // For ERC20 approval on Base (1inch requires approval before swap)
+  const { writeContractAsync } = useWriteContract();
+  const [pendingBaseSwap, setPendingBaseSwap] = useState<{ hash?: `0x${string}`; nl?: string | null }>({});
+  const {
+    isLoading: baseTxConfirming,
+    isSuccess: baseTxSuccess,
+    isError: baseTxError,
+    error: baseTxErrorDetails,
+  } = useWaitForTransactionReceipt({
+    hash: pendingBaseSwap.hash,
+    chainId: BASE_CHAIN_ID,
+    query: {
+      enabled: Boolean(pendingBaseSwap.hash),
+    },
+  });
+
+  // Helper: let other components (SwapRewards) know NL totals changed
+  const notifyNlRewardsUpdate = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('nl-rewards-updated'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (baseTxSuccess && pendingBaseSwap.hash) {
+      setSwapSuccess(true);
+      setNlEarned(pendingBaseSwap.nl || null);
+      setFromAmount('');
+      setToAmount('');
+      notifyNlRewardsUpdate();
+      setPendingBaseSwap({});
+    }
+  }, [baseTxSuccess, pendingBaseSwap, notifyNlRewardsUpdate]);
+
+  useEffect(() => {
+    if (baseTxError && pendingBaseSwap.hash) {
+      console.error('[Swap] Base transaction failed:', baseTxErrorDetails);
+      setSwapError('Base swap transaction failed. Please try again.');
+      setPendingBaseSwap({});
+    }
+  }, [baseTxError, baseTxErrorDetails, pendingBaseSwap]);
 
   // x402-fetch for Base (EVM) payments - UNCHANGED
   const fetchWithPayment = useMemo(() => {
@@ -710,6 +765,7 @@ export function SwapForm() {
         setNlEarned(earnedNl);
         setFromAmount('');
         setToAmount('');
+        notifyNlRewardsUpdate();
         
         // Refresh Solana balances
         const solAddress = effectiveSolanaAddress || solanaAddress;
@@ -721,20 +777,56 @@ export function SwapForm() {
           }
         }
       } else if (fromChain === 'Base' && data.tx) {
-        // Execute Base swap via wagmi
-        // Note: For Base, wagmi handles the transaction confirmation via useWaitForTransactionReceipt
-        sendTransaction({
+        // Execute Base swap via wagmi - wait for full confirmation before success message
+        if (!sendTransactionAsync) {
+          throw new Error('Wallet not ready to send transaction');
+        }
+        
+        // For ERC20 tokens (USDC, USDT), check and request approval if needed
+        // Per 1inch docs: https://portal.1inch.dev/documentation/swap/swagger
+        if (fromToken !== 'ETH' && tokenAddresses.Base[fromToken]) {
+          const tokenAddress = tokenAddresses.Base[fromToken] as Address;
+          const amountBigInt = parseUnits(fromAmount, 6); // USDC/USDT have 6 decimals
+          
+          // Check current allowance
+          const publicClient = (await import('viem')).createPublicClient({
+            chain: (await import('viem/chains')).base,
+            transport: (await import('viem')).http(),
+          });
+          
+          const currentAllowance = await publicClient.readContract({
+            address: tokenAddress,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [address as Address, ONEINCH_ROUTER_BASE as Address],
+          });
+          
+          console.log('[Swap] Current allowance:', currentAllowance.toString(), 'Required:', amountBigInt.toString());
+          
+          // If allowance insufficient, request approval
+          if (currentAllowance < amountBigInt) {
+            console.log('[Swap] Requesting ERC20 approval for 1inch router...');
+            const approvalHash = await writeContractAsync({
+              address: tokenAddress,
+              abi: erc20Abi,
+              functionName: 'approve',
+              args: [ONEINCH_ROUTER_BASE as Address, maxUint256],
+              chainId: BASE_CHAIN_ID,
+            });
+            console.log('[Swap] Approval tx:', approvalHash);
+            
+            // Wait for approval confirmation
+            await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+            console.log('[Swap] Approval confirmed');
+          }
+        }
+        
+        const txHash = await sendTransactionAsync({
           to: data.tx.to as Address,
           data: data.tx.data as `0x${string}`,
           value: BigInt(data.tx.value || '0'),
         });
-        
-        // For Base, show success after sending (wagmi hooks will update on confirmation)
-        // The actual confirmation is handled by useWaitForTransactionReceipt if needed
-        setSwapSuccess(true);
-        setNlEarned(earnedNl);
-        setFromAmount('');
-        setToAmount('');
+        setPendingBaseSwap({ hash: txHash, nl: earnedNl });
       }
     } catch (error) {
       console.error('[Swap] Error:', error);
@@ -761,17 +853,18 @@ export function SwapForm() {
     return Number(formatUnits(value, decimals)).toFixed(4);
   };
 
-  const getTokenBalance = (token: TokenSymbol) => {
-    if (token === 'SOL') {
-      return solanaBalance;
+  const getTokenBalance = (token: TokenSymbol, chain: ChainName = fromChain) => {
+    if (chain === 'Solana') {
+      if (token === 'SOL') return solanaBalance;
+      if (token === 'USDC') return solanaUsdcBalance;
+      if (token === 'USDT') return solanaUsdtBalance;
+      return '0.0000';
     }
-    if (token === 'USDC') {
-      return solanaAddress ? solanaUsdcBalance : formatErc20Balance(baseUsdcRaw as bigint | undefined, 6);
-    }
-    if (token === 'USDT') {
-      return solanaAddress ? solanaUsdtBalance : '0.0000';
-    }
-    return formatBalance(baseNativeBalance);
+    // Base chain
+    if (token === 'ETH') return formatBalance(baseNativeBalance);
+    if (token === 'USDC') return formatErc20Balance(baseUsdcRaw as bigint | undefined, 6);
+    if (token === 'USDT') return formatErc20Balance(baseUsdtRaw as bigint | undefined, 6);
+    return '0.0000';
   };
 
   const renderDropdownPortal = (
@@ -1139,6 +1232,12 @@ export function SwapForm() {
           {swapError && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-lg font-mono text-sm mt-4">
               {swapError}
+            </div>
+          )}
+
+          {pendingBaseSwap.hash && baseTxConfirming && (
+            <div className="bg-blue-500/10 border border-blue-500/30 text-blue-400 p-3 rounded-lg font-mono text-xs mt-4">
+              Base swap submitted. Waiting for transaction confirmation...
             </div>
           )}
 
