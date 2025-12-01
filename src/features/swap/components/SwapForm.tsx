@@ -1039,7 +1039,7 @@ export function SwapForm() {
                 You Pay
               </label>
               <span className="text-xs font-mono text-white/50">
-                Balance: {getChainBalance(fromChain)}
+                Balance: {getTokenBalance(fromToken, fromChain)}
               </span>
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative z-30">
@@ -1134,7 +1134,7 @@ export function SwapForm() {
                 You Receive
               </label>
               <span className="text-xs font-mono text-white/50">
-                Balance: {getChainBalance(toChain)}
+                Balance: {getTokenBalance(toToken, toChain)}
               </span>
             </div>
             <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-3 rounded-xl relative z-30">
