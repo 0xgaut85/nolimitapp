@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, RefObject, useMemo } from 're
 import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { useAccount, useBalance, useDisconnect, useReadContract, useSendTransaction, useWalletClient, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useBalance, useDisconnect, usePublicClient, useReadContract, useSendTransaction, useWalletClient, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { useAppKit, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Address, erc20Abi, formatUnits, parseUnits, maxUint256 } from 'viem';
@@ -475,6 +475,7 @@ export function SwapForm() {
   
   // For ERC20 approval on Base (1inch requires approval before swap)
   const { writeContractAsync } = useWriteContract();
+const publicClient = usePublicClient({ chainId: BASE_CHAIN_ID });
   const [pendingBaseSwap, setPendingBaseSwap] = useState<{ hash?: `0x${string}`; nl?: string | null }>({});
   const {
     isLoading: baseTxConfirming,
@@ -495,6 +496,55 @@ export function SwapForm() {
       window.dispatchEvent(new Event('nl-rewards-updated'));
     }
   }, []);
+
+  const ensureBaseAllowance = useCallback(
+    async (token: TokenSymbol, amount: string) => {
+      if (
+        !address ||
+        !publicClient ||
+        !writeContractAsync ||
+        token === 'ETH' ||
+        !tokenAddresses.Base[token]
+      ) {
+        return;
+      }
+
+      const tokenAddress = tokenAddresses.Base[token] as Address;
+      const decimals = token === 'USDC' || token === 'USDT' ? 6 : 18;
+      const amountBigInt = parseUnits(amount || '0', decimals);
+
+      if (amountBigInt === BigInt(0)) return;
+
+      try {
+        const allowance = (await publicClient.readContract({
+          address: tokenAddress,
+          abi: erc20Abi,
+          functionName: 'allowance',
+          args: [address as Address, ONEINCH_ROUTER_BASE as Address],
+        })) as bigint;
+
+        if (allowance >= amountBigInt) {
+          return;
+        }
+
+        console.log('[Swap] Requesting ERC20 approval for 1inch router...');
+        const approvalHash = await writeContractAsync({
+          address: tokenAddress,
+          abi: erc20Abi,
+          functionName: 'approve',
+          args: [ONEINCH_ROUTER_BASE as Address, maxUint256],
+          chainId: BASE_CHAIN_ID,
+        });
+        console.log('[Swap] Approval tx sent:', approvalHash);
+        await publicClient.waitForTransactionReceipt({ hash: approvalHash });
+        console.log('[Swap] Approval confirmed');
+      } catch (approvalError) {
+        console.error('[Swap] ERC20 approval failed:', approvalError);
+        throw new Error('Approval transaction failed. Please try again.');
+      }
+    },
+    [address, publicClient, writeContractAsync],
+  );
 
   useEffect(() => {
     if (baseTxSuccess && pendingBaseSwap.hash) {
@@ -654,6 +704,10 @@ export function SwapForm() {
         throw new Error('Please connect your wallet');
       }
 
+      if (fromChain === 'Base' && fromToken !== 'ETH') {
+        await ensureBaseAllowance(fromToken, fromAmount);
+      }
+
       // Convert amount to smallest unit
       const decimals = fromToken === 'SOL' ? 9 : fromToken === 'ETH' ? 18 : 6;
       const amountInSmallestUnit = parseUnits(fromAmount, decimals).toString();
@@ -780,45 +834,6 @@ export function SwapForm() {
         // Execute Base swap via wagmi - wait for full confirmation before success message
         if (!sendTransactionAsync) {
           throw new Error('Wallet not ready to send transaction');
-        }
-        
-        // For ERC20 tokens (USDC, USDT), check and request approval if needed
-        // Per 1inch docs: https://portal.1inch.dev/documentation/swap/swagger
-        if (fromToken !== 'ETH' && tokenAddresses.Base[fromToken]) {
-          const tokenAddress = tokenAddresses.Base[fromToken] as Address;
-          const amountBigInt = parseUnits(fromAmount, 6); // USDC/USDT have 6 decimals
-          
-          // Check current allowance
-          const publicClient = (await import('viem')).createPublicClient({
-            chain: (await import('viem/chains')).base,
-            transport: (await import('viem')).http(),
-          });
-          
-          const currentAllowance = await publicClient.readContract({
-            address: tokenAddress,
-            abi: erc20Abi,
-            functionName: 'allowance',
-            args: [address as Address, ONEINCH_ROUTER_BASE as Address],
-          });
-          
-          console.log('[Swap] Current allowance:', currentAllowance.toString(), 'Required:', amountBigInt.toString());
-          
-          // If allowance insufficient, request approval
-          if (currentAllowance < amountBigInt) {
-            console.log('[Swap] Requesting ERC20 approval for 1inch router...');
-            const approvalHash = await writeContractAsync({
-              address: tokenAddress,
-              abi: erc20Abi,
-              functionName: 'approve',
-              args: [ONEINCH_ROUTER_BASE as Address, maxUint256],
-              chainId: BASE_CHAIN_ID,
-            });
-            console.log('[Swap] Approval tx:', approvalHash);
-            
-            // Wait for approval confirmation
-            await publicClient.waitForTransactionReceipt({ hash: approvalHash });
-            console.log('[Swap] Approval confirmed');
-          }
         }
         
         const txHash = await sendTransactionAsync({
