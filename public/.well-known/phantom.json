@@ -1,0 +1,16 @@
+{
+  "name": "noLimit Foundation",
+  "domain": "app.nolimit.foundation",
+  "icon": "https://app.nolimit.foundation/icon.png",
+  "supportEmail": "security@nolimit.foundation",
+  "twitter": "https://twitter.com/nolimitFDN",
+  "redirects": [
+    "https://nolimit.foundation",
+    "https://www.nolimit.foundation",
+    "https://docs.nolimit.foundation",
+    "https://app.nolimit.foundation"
+  ]
+}
+
+
+

@@ -44,3 +44,6 @@ railway variables set MIXER_SOL_WALLET_20_KEY="4n54ceGEPVxg9X16zS5A1WYnLW2oEdioB
 
 Write-Host "✅ All mixer wallet keys set on Railway!" -ForegroundColor Green
 
+
+
+

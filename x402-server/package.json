@@ -11,8 +11,16 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "generate-wallets": "tsx scripts/generate-wallets.ts",
+    "funder:generate-base": "tsx scripts/fund-base-wallets.ts generate",
+    "funder:generate-solana": "tsx scripts/fund-solana-wallets.ts generate",
+    "funder:check-base": "tsx scripts/fund-base-wallets.ts check",
+    "funder:check-solana": "tsx scripts/fund-solana-wallets.ts check",
+    "fund-base": "tsx scripts/fund-base-wallets.ts fund",
+    "fund-solana": "tsx scripts/fund-solana-wallets.ts fund",
+    "fund-remaining-solana": "tsx scripts/fund-remaining-solana.ts",
     "simulate:quick": "tsx scripts/simulate-activity.ts quick",
     "simulate:timed": "tsx scripts/simulate-activity.ts timed",
+    "simulate:live": "tsx scripts/simulate-live-x402.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -41,5 +49,8 @@
     "x402-express": "0.7.3",
     "x402-fetch": "^0.7.3",
     "x402-solana": "^0.1.4"
+  },
+  "devDependencies": {
+    "axios": "^1.13.2"
   }
 }

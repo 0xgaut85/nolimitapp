@@ -26,3 +26,6 @@ CREATE INDEX "NLReward_createdAt_idx" ON "NLReward"("createdAt");
 -- Add foreign key
 ALTER TABLE "NLReward" ADD CONSTRAINT "NLReward_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+
+
+

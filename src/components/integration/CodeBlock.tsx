@@ -108,3 +108,6 @@ function highlightSyntax(code: string, language: string): React.ReactNode {
   return <span dangerouslySetInnerHTML={{ __html: result }} />;
 }
 
+
+
+

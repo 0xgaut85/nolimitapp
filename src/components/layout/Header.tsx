@@ -17,6 +17,7 @@ export function Header() {
     { name: "Swap", href: "/swap" },
     { name: "Mixer", href: "/mixer" },
     { name: "Integration", href: "/integration" },
+    { name: "App", href: "/download" },
   ];
 
   return (

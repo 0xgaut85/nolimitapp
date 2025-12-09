@@ -25,3 +25,6 @@ CREATE INDEX "ApiKey_userId_idx" ON "ApiKey"("userId");
 -- AddForeignKey
 ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+
+
+
