@@ -112,7 +112,7 @@ export default function DownloadPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="ENTER ACCESS CODE"
-                      className="w-full bg-white/40 backdrop-blur-md border border-black/10 px-6 py-4 text-black text-center tracking-[0.2em] placeholder:text-black/40 placeholder:tracking-normal focus:outline-none focus:border-[#2d5a3d]/50 transition-all uppercase rounded-sm"
+                      className="w-full bg-white/40 backdrop-blur-md border border-black/10 px-6 py-4 text-black text-center tracking-[0.2em] placeholder:text-black/40 placeholder:tracking-normal focus:outline-none focus:border-[#2d5a3d]/50 transition-all uppercase rounded-sm shadow-sm"
                       autoFocus
                     />
                   </div>
@@ -134,7 +134,7 @@ export default function DownloadPage() {
                     type="submit"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className="w-full bg-[#2d5a3d] text-white font-bold py-4 hover:bg-[#234730] transition-colors uppercase tracking-wider text-sm rounded-sm"
+                    className="w-full bg-[#2d5a3d] text-white font-bold py-4 hover:bg-[#234730] transition-colors uppercase tracking-wider text-sm rounded-sm shadow-md"
                   >
                     Authenticate
                   </motion.button>
@@ -149,66 +149,69 @@ export default function DownloadPage() {
               animate={{ opacity: 1 }}
               className="flex-1 flex flex-col"
             >
-              <header className="px-6 py-6 flex justify-between items-center backdrop-blur-sm bg-white/20 border-b border-black/5">
+              <header className="px-6 py-6 flex justify-between items-center backdrop-blur-sm bg-white/30 border-b border-black/5 sticky top-0 z-50">
                 <Image src="/logoblack.svg" alt="noLimit" width={120} height={34} className="object-contain" />
-                <div className="flex items-center gap-2 text-[#2d5a3d] text-xs uppercase tracking-wider font-bold">
+                <div className="flex items-center gap-2 text-[#2d5a3d] text-xs uppercase tracking-wider font-bold bg-white/50 px-3 py-1 rounded-full border border-black/5">
                   <span className="w-1.5 h-1.5 bg-[#2d5a3d] rounded-full animate-pulse" />
                   Connected
                 </div>
               </header>
 
-              <main className="flex-1 flex items-center justify-center p-6">
-                <div className="max-w-4xl w-full">
-                  <div className="grid md:grid-cols-2 gap-12 items-center">
+              <main className="flex-1 flex items-center justify-center p-6 md:p-12">
+                <div className="max-w-5xl w-full">
+                  <div className="grid md:grid-cols-2 gap-16 items-center">
                     <motion.div
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.2 }}
+                      className="text-left"
                     >
-                      <h1 className="text-4xl md:text-5xl font-bold text-black mb-6 leading-tight">
+                      <h1 className="text-5xl md:text-6xl font-bold text-black mb-6 leading-none tracking-tight">
                         Private AI <br />
                         <span className="text-[#2d5a3d]">On Your Device</span>
                       </h1>
-                      <p className="text-black/70 text-lg mb-8 leading-relaxed font-medium">
+                      <p className="text-black/70 text-lg md:text-xl mb-10 leading-relaxed font-medium max-w-md">
                         Run advanced LLMs locally with complete privacy. No data leaves your machine. Optimized for Windows 10/11.
                       </p>
                       
-                      <div className="space-y-4 mb-8 text-sm text-black/60 font-medium">
+                      <div className="space-y-4 mb-10 text-sm text-black/60 font-medium">
                         <div className="flex items-center gap-3">
-                          <span className="w-1 h-1 bg-[#2d5a3d]" />
+                          <div className="w-1.5 h-1.5 bg-[#2d5a3d] rounded-full" />
                           <span>Local Inference Engine</span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="w-1 h-1 bg-[#2d5a3d]" />
+                          <div className="w-1.5 h-1.5 bg-[#2d5a3d] rounded-full" />
                           <span>Zero Data Retention</span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="w-1 h-1 bg-[#2d5a3d]" />
+                          <div className="w-1.5 h-1.5 bg-[#2d5a3d] rounded-full" />
                           <span>Offline Capabilities</span>
                         </div>
                       </div>
 
-                      <motion.button
-                        onClick={handleDownload}
-                        disabled={downloadStarted}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={`group relative px-8 py-4 bg-[#2d5a3d] text-white font-bold uppercase tracking-wider transition-all w-full md:w-auto rounded-sm shadow-lg shadow-[#2d5a3d]/20 ${
-                          downloadStarted ? 'opacity-70 cursor-wait' : 'hover:bg-[#234730]'
-                        }`}
-                      >
-                        <span className="flex items-center justify-center gap-3">
-                          {downloadStarted ? 'Downloading...' : 'Download for Windows'}
-                          {!downloadStarted && (
-                            <svg className="w-4 h-4 transition-transform group-hover:translate-y-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                            </svg>
-                          )}
-                        </span>
-                      </motion.button>
-                      <p className="mt-4 text-xs text-black/40 font-medium">
-                        v1.0.0 • Windows 10/11 (64-bit)
-                      </p>
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <motion.button
+                          onClick={handleDownload}
+                          disabled={downloadStarted}
+                          whileHover={{ scale: 1.02 }}
+                          whileTap={{ scale: 0.98 }}
+                          className={`group relative px-8 py-4 bg-[#2d5a3d] text-white font-bold uppercase tracking-wider transition-all w-full sm:w-auto rounded-sm shadow-lg shadow-[#2d5a3d]/20 ${
+                            downloadStarted ? 'opacity-70 cursor-wait' : 'hover:bg-[#234730]'
+                          }`}
+                        >
+                          <span className="flex items-center justify-center gap-3">
+                            {downloadStarted ? 'Downloading...' : 'Download for Windows'}
+                            {!downloadStarted && (
+                              <svg className="w-4 h-4 transition-transform group-hover:translate-y-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                              </svg>
+                            )}
+                          </span>
+                        </motion.button>
+                        <p className="text-xs text-black/40 font-medium px-2">
+                          v1.0.0 • Windows 10/11 (64-bit)
+                        </p>
+                      </div>
                     </motion.div>
 
                     <motion.div
@@ -217,42 +220,44 @@ export default function DownloadPage() {
                       transition={{ delay: 0.4 }}
                       className="relative hidden md:block"
                     >
-                      <div className="relative z-10 bg-white/30 backdrop-blur-xl border border-white/40 rounded-lg p-1 shadow-2xl shadow-black/5">
-                        <div className="aspect-[4/3] bg-white/50 rounded overflow-hidden relative">
+                      <div className="relative z-10 bg-white/40 backdrop-blur-xl border border-white/60 rounded-xl p-2 shadow-2xl shadow-black/5 ring-1 ring-black/5">
+                        <div className="aspect-[4/3] bg-white/60 rounded-lg overflow-hidden relative border border-white/50">
                            {/* Abstract UI Representation - Light Mode */}
-                           <div className="absolute inset-0 flex flex-col p-6">
-                              <div className="flex gap-2 mb-8">
+                           <div className="absolute inset-0 flex flex-col p-8">
+                              <div className="flex gap-2.5 mb-10">
                                 <div className="w-3 h-3 rounded-full bg-black/10" />
                                 <div className="w-3 h-3 rounded-full bg-black/10" />
                                 <div className="w-3 h-3 rounded-full bg-black/10" />
                               </div>
-                              <div className="space-y-4">
-                                <div className="w-3/4 h-2 bg-black/5 rounded" />
-                                <div className="w-1/2 h-2 bg-black/5 rounded" />
-                                <div className="w-full h-32 bg-white/40 rounded mt-8 border border-white/50 shadow-sm" />
+                              <div className="space-y-5">
+                                <div className="w-3/4 h-2.5 bg-black/5 rounded-full" />
+                                <div className="w-1/2 h-2.5 bg-black/5 rounded-full" />
+                                <div className="w-full h-40 bg-white/50 rounded-lg mt-8 border border-white/60 shadow-inner" />
                               </div>
-                              <div className="mt-auto flex gap-2">
-                                <div className="flex-1 h-10 bg-white/40 rounded border border-white/50 shadow-sm" />
-                                <div className="w-10 h-10 bg-[#2d5a3d]/10 rounded border border-[#2d5a3d]/5" />
+                              <div className="mt-auto flex gap-3">
+                                <div className="flex-1 h-12 bg-white/50 rounded-lg border border-white/60 shadow-sm" />
+                                <div className="w-12 h-12 bg-[#2d5a3d]/10 rounded-lg border border-[#2d5a3d]/5 flex items-center justify-center">
+                                  <div className="w-4 h-4 bg-[#2d5a3d]/20 rounded-full" />
+                                </div>
                               </div>
                            </div>
                            
                            {/* Glow */}
-                           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-[#2d5a3d]/10 blur-[60px]" />
+                           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 bg-[#2d5a3d]/10 blur-[80px]" />
                         </div>
                       </div>
                       
                       {/* Decorative elements behind */}
-                      <div className="absolute -top-4 -right-4 w-24 h-24 border-t border-r border-black/5 rounded-tr-3xl" />
-                      <div className="absolute -bottom-4 -left-4 w-24 h-24 border-b border-l border-black/5 rounded-bl-3xl" />
+                      <div className="absolute -top-6 -right-6 w-32 h-32 border-t border-r border-black/5 rounded-tr-[2rem]" />
+                      <div className="absolute -bottom-6 -left-6 w-32 h-32 border-b border-l border-black/5 rounded-bl-[2rem]" />
                     </motion.div>
                   </div>
                 </div>
               </main>
 
-              <footer className="p-6 text-center">
+              <footer className="p-8 text-center border-t border-black/5 bg-white/20 backdrop-blur-sm">
                 <p className="text-black/30 text-xs uppercase tracking-widest font-bold">
-                  noLimit Foundation © 2024
+                  noLimit Foundation © 2025
                 </p>
               </footer>
             </motion.div>
