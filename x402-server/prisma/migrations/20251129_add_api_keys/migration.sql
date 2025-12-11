@@ -29,3 +29,4 @@ ALTER TABLE "ApiKey" ADD CONSTRAINT "ApiKey_userId_fkey" FOREIGN KEY ("userId") 
 
 
 
+

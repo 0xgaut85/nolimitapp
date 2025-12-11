@@ -30,3 +30,4 @@ ALTER TABLE "NLReward" ADD CONSTRAINT "NLReward_userId_fkey" FOREIGN KEY ("userI
 
 
 
+
