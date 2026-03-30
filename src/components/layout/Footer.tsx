@@ -36,7 +36,7 @@ export function Footer() {
       title: 'Company',
       links: [
         { name: 'About', href: 'https://nolimit.foundation', external: true },
-        { name: 'Twitter', href: 'https://x.com/nolimitFDN', external: true }
+        { name: 'Contact', href: 'mailto:hello@nolimit.foundation', external: true }
       ]
     }
   ];

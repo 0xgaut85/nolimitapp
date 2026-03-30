@@ -43,7 +43,7 @@ export default function HomePage() {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="text-lg sm:text-xl md:text-3xl lg:text-4xl max-w-4xl mx-auto text-black leading-relaxed"
           >
-            Private Payment Infrastructure
+            Enterprise private LLM—secure API access, zero retention
           </motion.p>
         </div>
       </section>
@@ -59,10 +59,10 @@ export default function HomePage() {
             className="mb-12 md:mb-16"
           >
             <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold mb-4 text-[#2d5a3d]">
-              <span className="font-mono bracket-text">Protocol Modules</span>
+              <span className="font-mono bracket-text">Platform modules</span>
             </h2>
             <p className="text-lg md:text-xl text-black max-w-2xl">
-              Deploy payment-gated AI agents and execute private swaps on Base and Solana.
+              Operational console for teams: private LLM chat and APIs first, then usage visibility, integration docs, and optional on-chain utilities where your roadmap requires them.
             </p>
           </motion.div>
 
@@ -82,10 +82,10 @@ export default function HomePage() {
                   <div className="text-3xl md:text-4xl font-mono mb-4 md:mb-6 text-[#b8d1b3]">[01]</div>
                   <h3 className="text-2xl md:text-3xl font-bold mb-3 md:mb-4 text-[#2d5a3d]">noLimit LLM</h3>
                   <p className="text-base md:text-lg text-black leading-relaxed mb-4 md:mb-6">
-                    Secure terminal for autonomous AI interactions. Powered by x402 payments with complete privacy and zero data retention.
+                    Internal copilot and customer-facing chat with no log retention. Issue calls from your VPC or app tier with API keys; optional client-side metered settlement where policy allows. Prompts are not used to train shared models.
                   </p>
                   <div className="font-mono text-sm text-[#4a7c59]">
-                    → 0.05 USDC per message
+                    → List pricing from 0.05 USDC per message; volume terms via hello@nolimit.foundation
                   </div>
                 </div>
               </Link>
@@ -105,7 +105,7 @@ export default function HomePage() {
                   <div className="text-3xl md:text-4xl font-mono mb-4 md:mb-6 text-[#b8d1b3]">[02]</div>
                   <h3 className="text-xl md:text-2xl font-bold mb-3 md:mb-4 text-[#2d5a3d]">Live Dashboard</h3>
                   <p className="text-black leading-relaxed">
-                    Real-time analytics and protocol metrics. Track usage, revenue, and transaction history across all services.
+                    Finance- and ops-friendly visibility: consumption, spend, and service health across LLM and adjacent modules—one pane for engineering and leadership reviews.
                   </p>
                 </div>
               </Link>
@@ -125,7 +125,7 @@ export default function HomePage() {
                   <div className="text-3xl md:text-4xl font-mono mb-4 md:mb-6 text-[#b8d1b3]">[03]</div>
                   <h3 className="text-xl md:text-2xl font-bold mb-3 md:mb-4 text-[#2d5a3d]">Integration Guide</h3>
                   <p className="text-black leading-relaxed">
-                    Documentation for integrating x402 private payments into any DApp. Build payment-gated AI agents.
+                    Reference, auth patterns, and a live playground. Onboard security and platform teams quickly; enterprise keying and commercial terms available on request.
                   </p>
                 </div>
               </Link>
@@ -145,10 +145,10 @@ export default function HomePage() {
                   <div className="text-3xl md:text-4xl font-mono mb-4 md:mb-6 text-[#b8d1b3]">[04]</div>
                   <h3 className="text-2xl md:text-3xl font-bold mb-3 md:mb-4 text-[#2d5a3d]">noLimit Swap</h3>
                   <p className="text-base md:text-lg text-black leading-relaxed mb-4 md:mb-6">
-                    High-frequency trading router with privacy preservation. Multi-chain support for Base and Solana with optimal execution and MEV protection.
+                    Supplementary liquidity module for teams that still settle on-chain: Base and Solana routing when treasury or workflow demands it—adjacent to the core LLM offering.
                   </p>
                   <div className="font-mono text-sm text-[#4a7c59]">
-                    → 0.10 USDC per swap
+                    → List pricing from 0.10 USDC per swap
                   </div>
                 </div>
               </Link>

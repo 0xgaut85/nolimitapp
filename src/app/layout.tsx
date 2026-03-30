@@ -5,10 +5,12 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'noLimit App',
-  description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
+  description:
+    'Enterprise private LLM console—zero data retention, server-side API keys as the default integration, optional Web3 wallet settlement for metered use. Flexible commercial terms for larger deployments: hello@nolimit.foundation',
   openGraph: {
     title: 'noLimit App',
-    description: 'A privacy-first AI ecosystem, redefining what AI can and should be.',
+    description:
+      'Enterprise private LLM console—zero data retention, server-side API keys as the default integration, optional Web3 wallet settlement for metered use. Flexible commercial terms for larger deployments: hello@nolimit.foundation',
     images: ['/illustration/logox.jpg'],
   },
 };

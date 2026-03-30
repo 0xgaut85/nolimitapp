@@ -36,7 +36,7 @@ export default function IntegrationPage() {
           transition={{ delay: 0.1 }}
           className="text-white/60 font-mono max-w-2xl text-lg"
         >
-          Integrate noLimit&apos;s uncensored AI into your application. Pay-per-request with crypto or use API keys for enterprise access.
+          Enterprise integration for noLimit&apos;s private LLM—zero retention, predictable server-side auth. Standard path: API keys from your application tier. Optional: Web3 wallet settlement (x402) for metered client-side use. Flexible commercial terms and higher limits: hello@nolimit.foundation
         </motion.p>
       </div>
 
@@ -80,8 +80,8 @@ function OverviewSection() {
     <div className="space-y-8">
       <Section title="What is noLimit?">
         <p className="text-white/70 font-mono leading-relaxed mb-6">
-          noLimit provides an uncensored AI API that answers any question without restrictions. 
-          Built on Venice AI, it offers complete privacy with zero data retention.
+          noLimit is a private LLM API for production workloads: completions without retention of prompts or replies, aligned with security review and procurement expectations.
+          Built on Venice AI—designed for organizations that need substance behind privacy claims, not marketing copy.
         </p>
         
         <div className="grid md:grid-cols-2 gap-4">
@@ -92,9 +92,9 @@ function OverviewSection() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <h4 className="text-white font-mono font-bold">Zero Censorship</h4>
+              <h4 className="text-white font-mono font-bold">Policy-stable outputs</h4>
             </div>
-            <p className="text-white/50 font-mono text-sm">No content filters, no refusals, no moral judgments. Get direct answers to any question.</p>
+            <p className="text-white/50 font-mono text-sm">Fewer vendor-imposed refusals on legitimate business and research prompts—so internal copilots stay usable under your governance.</p>
           </Card>
           
           <Card className="p-6">
@@ -104,9 +104,9 @@ function OverviewSection() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
               </div>
-              <h4 className="text-white font-mono font-bold">Privacy First</h4>
+              <h4 className="text-white font-mono font-bold">Data handling</h4>
             </div>
-            <p className="text-white/50 font-mono text-sm">No data retention. Your conversations are not stored or used for training.</p>
+            <p className="text-white/50 font-mono text-sm">No data retention for completions. Customer traffic is not used to train shared foundation models.</p>
           </Card>
           
           <Card className="p-6">
@@ -116,9 +116,9 @@ function OverviewSection() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                 </svg>
               </div>
-              <h4 className="text-white font-mono font-bold">Crypto Payments</h4>
+              <h4 className="text-white font-mono font-bold">Commercial flexibility</h4>
             </div>
-            <p className="text-white/50 font-mono text-sm">Pay per request with USDC on Base or Solana. No subscriptions, no KYC.</p>
+            <p className="text-white/50 font-mono text-sm">Metered API access with published unit economics; optional Web3 settlement (USDC on Base or Solana) where your policy allows. Volume and procurement-friendly terms available—hello@nolimit.foundation</p>
           </Card>
           
           <Card className="p-6">
@@ -128,9 +128,9 @@ function OverviewSection() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
               </div>
-              <h4 className="text-white font-mono font-bold">Fast & Simple</h4>
+              <h4 className="text-white font-mono font-bold">Low-lift integration</h4>
             </div>
-            <p className="text-white/50 font-mono text-sm">Single POST request. No complex setup. Integrate in minutes.</p>
+            <p className="text-white/50 font-mono text-sm">Single POST contract from your backend. Fits standard API gateways, secrets managers, and CI/CD review flows.</p>
           </Card>
         </div>
       </Section>
@@ -139,10 +139,10 @@ function OverviewSection() {
         <CodeBlock
           language="bash"
           label="TERMINAL"
-          code={`# Install the x402 payment client (for crypto payments)
+          code={`# Optional: x402-fetch for per-request wallet settlement
 npm install x402-fetch
 
-# Or use API keys for server-to-server calls
+# Recommended: API keys for server-to-server private LLM calls
 curl -X POST https://x402.nolimit.foundation/api/agent \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: your-api-key" \\
@@ -151,6 +151,9 @@ curl -X POST https://x402.nolimit.foundation/api/agent \\
       </Section>
 
       <Section title="Pricing">
+        <p className="text-white/50 font-mono text-sm mb-4 max-w-2xl">
+          List pricing below; enterprise quotes, higher rate limits, and flexible commercial terms on request.
+        </p>
         <div className="grid md:grid-cols-2 gap-4">
           <Card className="p-6" glow>
             <h4 className="text-[#b8d1b3] font-mono mb-2 text-sm uppercase tracking-wider">noLimit LLM</h4>
@@ -173,7 +176,7 @@ function AuthSection() {
     <div className="space-y-8">
       <Section title="Authentication Methods">
         <p className="text-white/70 font-mono mb-6">
-          noLimit supports two authentication methods. Choose based on your use case.
+          Production deployments should keep secrets on an application or API tier you control. API keys behind your gateway align with typical enterprise security review. The x402 flow is optional Web3 settlement—use when product policy calls for user-paid, per-request metering without placing long-lived secrets in the browser.
         </p>
       </Section>
 
@@ -181,36 +184,11 @@ function AuthSection() {
         <Card className="p-6" glow>
           <h3 className="text-[#b8d1b3] font-mono text-lg mb-4 flex items-center gap-2">
             <span className="w-8 h-8 rounded-lg bg-[#b8d1b3]/20 flex items-center justify-center text-sm">1</span>
-            x402 Payment Protocol
-          </h3>
-          <p className="text-white/60 font-mono text-sm mb-4">
-            Best for client-side apps where users pay directly with their crypto wallet. 
-            Uses the HTTP 402 Payment Required flow.
-          </p>
-          <ul className="space-y-2 text-sm font-mono text-white/50">
-            <li className="flex items-center gap-2">
-              <span className="text-[#b8d1b3]">+</span> Users pay per request
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-[#b8d1b3]">+</span> No API keys needed
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-[#b8d1b3]">+</span> Supports Base & Solana
-            </li>
-            <li className="flex items-center gap-2">
-              <span className="text-white/30">-</span> Requires wallet connection
-            </li>
-          </ul>
-        </Card>
-
-        <Card className="p-6">
-          <h3 className="text-white font-mono text-lg mb-4 flex items-center gap-2">
-            <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-sm">2</span>
             API Keys
           </h3>
           <p className="text-white/60 font-mono text-sm mb-4">
-            Best for server-to-server integrations and enterprise apps. 
-            Uses standard API key authentication.
+            Default for B2B and internal tools: standard <code className="text-white/80">X-API-Key</code> header from your backend,
+            no wallet in the critical path, predictable quotas—ideal for VPC egress and secrets-manager workflows.
           </p>
           <ul className="space-y-2 text-sm font-mono text-white/50">
             <li className="flex items-center gap-2">
@@ -227,9 +205,33 @@ function AuthSection() {
             </li>
           </ul>
         </Card>
+
+        <Card className="p-6">
+          <h3 className="text-white font-mono text-lg mb-4 flex items-center gap-2">
+            <span className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-sm">2</span>
+            x402 (optional Web3 settlement)
+          </h3>
+          <p className="text-white/60 font-mono text-sm mb-4">
+            For experiences where end users fund their own usage: HTTP 402 plus a connected wallet on Base or Solana—so you never ship API keys to untrusted clients.
+          </p>
+          <ul className="space-y-2 text-sm font-mono text-white/50">
+            <li className="flex items-center gap-2">
+              <span className="text-[#b8d1b3]">+</span> Per-request billing from the user
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-[#b8d1b3]">+</span> No API key in client code
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-[#b8d1b3]">+</span> Base & Solana supported
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="text-white/30">-</span> Requires a connected wallet
+            </li>
+          </ul>
+        </Card>
       </div>
 
-      <Section title="x402 Payment Flow">
+      <Section title="Optional Web3 settlement (x402)">
         <CodeBlock
           language="typescript"
           label="x402-client.ts"
@@ -291,13 +293,13 @@ function ReferenceSection() {
           <EndpointCard
             method="POST"
             path="/noLimitLLM"
-            description="Send a message to noLimit LLM using x402 payment (Base)"
+            description="Private LLM completion with x402 wallet settlement on Base"
             auth="x402 (Base)"
           />
           <EndpointCard
             method="POST"
             path="/noLimitLLM/solana"
-            description="Send a message to noLimit LLM using x402 payment (Solana)"
+            description="Private LLM completion with x402 wallet settlement on Solana"
             auth="x402 (Solana)"
           />
         </div>
@@ -364,7 +366,7 @@ interface ErrorResponse {
               </tr>
               <tr>
                 <td className="p-4 text-amber-400">402</td>
-                <td className="p-4 text-white/70">Payment Required - x402 payment needed</td>
+                <td className="p-4 text-white/70">Payment Required — complete x402 wallet settlement</td>
               </tr>
               <tr>
                 <td className="p-4 text-amber-400">429</td>
@@ -600,7 +602,7 @@ function PlaygroundSection() {
     <div className="space-y-8">
       <Section title="API Playground">
         <p className="text-white/70 font-mono mb-6">
-          Test the API directly in your browser. Enter your API key and send a request.
+          Validate payloads and latency from the browser with a test key. Prefer staging keys—never production secrets in shared machines.
         </p>
       </Section>
       
@@ -608,8 +610,8 @@ function PlaygroundSection() {
 
       <div className="bg-white/5 border border-white/10 rounded-xl p-4">
         <p className="text-white/50 font-mono text-sm">
-          <span className="text-[#b8d1b3]">Tip:</span> Don&apos;t have an API key? Go to the &quot;API Keys&quot; tab and create one.
-          Or use the Agent Chat page to test with x402 wallet payments.
+          <span className="text-[#b8d1b3]">Tip:</span> Need a key? Open the &quot;API Keys&quot; tab after linking a wallet for verification.
+          Or use Agent Chat to exercise the optional metered flow with a connected wallet.
         </p>
       </div>
     </div>
@@ -621,7 +623,7 @@ function KeysSection() {
     <div className="space-y-8">
       <Section title="API Key Management">
         <p className="text-white/70 font-mono mb-6">
-          Create and manage your API keys. Each key has a rate limit of 1,000 requests per day.
+          Create and rotate keys per environment. Default quota: 1,000 requests per day per key. For higher limits, org-wide keying, or enterprise commercial terms, email hello@nolimit.foundation.
         </p>
       </Section>
 

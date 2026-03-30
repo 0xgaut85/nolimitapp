@@ -149,9 +149,9 @@ export function ApiKeyManager() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
           </svg>
         </div>
-        <h3 className="text-lg font-mono text-white mb-2">Connect Your Wallet</h3>
-        <p className="text-sm text-white/50 font-mono">
-          Connect your wallet to create and manage API keys
+        <h3 className="text-lg font-mono text-white mb-2">Link a wallet</h3>
+        <p className="text-sm text-white/50 font-mono mb-3">
+          Verify identity to create and manage keys. Org-wide provisioning and higher limits: hello@nolimit.foundation
         </p>
       </div>
     );
